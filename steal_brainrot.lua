@@ -41,6 +41,23 @@ local PlayerBasePosition = nil
 local BuyingBrainrot = false
 local PlayerMoney = 0
 
+-- Configuration Webhook Discord
+local WebhookConfig = {
+    enabled = false,
+    url = "", -- URL du webhook Discord
+    sendErrors = true,
+    sendBrainrotSpawn = true,
+    sendAutoBuy = true,
+    sendPlayerJoin = false
+}
+
+-- Cache pour éviter le spam de notifications
+local NotificationCache = {
+    lastBrainrotSpawn = {},
+    lastError = "",
+    lastErrorTime = 0
+}
+
 -- Services Roblox
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
@@ -52,6 +69,146 @@ local player = Players.LocalPlayer
 local character = player.Character or player.CharacterAdded:Wait()
 local humanoid = character:WaitForChild("Humanoid")
 local rootPart = character:WaitForChild("HumanoidRootPart")
+
+-- 📡 FONCTIONS WEBHOOK DISCORD
+
+-- Envoyer un webhook Discord
+local function SendDiscordWebhook(title, description, color, fields)
+    if not WebhookConfig.enabled or WebhookConfig.url == "" then
+        return
+    end
+    
+    pcall(function()
+        local data = {
+            embeds = {{
+                title = title,
+                description = description,
+                color = color or 3447003, -- Bleu par défaut
+                fields = fields or {},
+                footer = {
+                    text = "Steal Brainrot MVP • " .. player.Name,
+                    icon_url = "https://www.roblox.com/headshot-thumbnail/image?userId=" .. player.UserId .. "&width=150&height=150&format=png"
+                },
+                timestamp = os.date("!%Y-%m-%dT%H:%M:%S")
+            }}
+        }
+        
+        local jsonData = game:GetService("HttpService"):JSONEncode(data)
+        
+        local request = {
+            Url = WebhookConfig.url,
+            Method = "POST",
+            Headers = {
+                ["Content-Type"] = "application/json"
+            },
+            Body = jsonData
+        }
+        
+        local success, response = pcall(function()
+            return game:GetService("HttpService"):RequestAsync(request)
+        end)
+        
+        if success and response.Success then
+            DebugLog("📡 Webhook envoyé: " .. title)
+        else
+            DebugLog("❌ Erreur webhook: " .. tostring(response), "warn")
+        end
+    end)
+end
+
+-- Notification d'erreur
+local function NotifyError(errorMsg, context)
+    if not WebhookConfig.sendErrors then return end
+    
+    -- Éviter le spam d'erreurs identiques
+    local currentTime = tick()
+    if NotificationCache.lastError == errorMsg and currentTime - NotificationCache.lastErrorTime < 30 then
+        return
+    end
+    
+    NotificationCache.lastError = errorMsg
+    NotificationCache.lastErrorTime = currentTime
+    
+    SendDiscordWebhook(
+        "🚨 Erreur Détectée",
+        "Une erreur s'est produite dans le script",
+        15158332, -- Rouge
+        {
+            {name = "Erreur", value = errorMsg, inline = false},
+            {name = "Contexte", value = context or "Inconnu", inline = false},
+            {name = "Joueur", value = player.Name .. " (" .. player.UserId .. ")", inline = true},
+            {name = "Serveur", value = game.JobId, inline = true}
+        }
+    )
+end
+
+-- Notification spawn brainrot
+local function NotifyBrainrotSpawn(brainrotInfo)
+    if not WebhookConfig.sendBrainrotSpawn then return end
+    
+    -- Éviter le spam pour le même brainrot
+    local cacheKey = brainrotInfo.name .. "_" .. brainrotInfo.rarity
+    if NotificationCache.lastBrainrotSpawn[cacheKey] and 
+       tick() - NotificationCache.lastBrainrotSpawn[cacheKey] < 10 then
+        return
+    end
+    
+    NotificationCache.lastBrainrotSpawn[cacheKey] = tick()
+    
+    local color = brainrotInfo.rarity == "God" and 16766720 or 16777215 -- Or ou Blanc
+    
+    SendDiscordWebhook(
+        "🎭 Nouveau Brainrot " .. brainrotInfo.rarity,
+        "Un brainrot " .. brainrotInfo.rarity .. " vient d'apparaître !",
+        color,
+        {
+            {name = "Nom", value = brainrotInfo.name, inline = true},
+            {name = "Rareté", value = brainrotInfo.rarity, inline = true},
+            {name = "Prix", value = "$" .. (brainrotInfo.price or "N/A"), inline = true},
+            {name = "Joueur", value = player.Name, inline = true},
+            {name = "Argent disponible", value = "$" .. tostring(PlayerMoney), inline = true},
+            {name = "Peut acheter", value = brainrotInfo.canAfford and "✅ Oui" or "❌ Non", inline = true}
+        }
+    )
+end
+
+-- Notification achat réussi
+local function NotifyAutoBuy(brainrotInfo, success)
+    if not WebhookConfig.sendAutoBuy then return end
+    
+    local color = success and 3066993 or 15158332 -- Vert ou Rouge
+    local title = success and "✅ Achat Réussi" or "❌ Échec Achat"
+    
+    SendDiscordWebhook(
+        title,
+        success and "Brainrot acheté avec succès !" or "Échec de l'achat du brainrot",
+        color,
+        {
+            {name = "Brainrot", value = brainrotInfo.name, inline = true},
+            {name = "Rareté", value = brainrotInfo.rarity, inline = true},
+            {name = "Prix", value = "$" .. (brainrotInfo.price or "N/A"), inline = true},
+            {name = "Joueur", value = player.Name, inline = true},
+            {name = "Serveur", value = game.JobId, inline = true},
+            {name = "Timestamp", value = os.date("%H:%M:%S"), inline = true}
+        }
+    )
+end
+
+-- Notification joueur rejoint (optionnel)
+local function NotifyPlayerJoin(playerName)
+    if not WebhookConfig.sendPlayerJoin then return end
+    
+    SendDiscordWebhook(
+        "👤 Joueur Rejoint",
+        "Un nouveau joueur a rejoint le serveur",
+        3447003, -- Bleu
+        {
+            {name = "Joueur", value = playerName, inline = true},
+            {name = "Serveur", value = game.JobId, inline = true},
+            {name = "Joueurs Total", value = #Players:GetPlayers(), inline = true}
+        }
+    )
+end
 
 -- 🎮 FONCTIONS SPÉCIFIQUES STEAL BRAINROT
 
@@ -154,7 +311,7 @@ local function DetectPlayerBase()
 end
 
 -- Scanner tous les brainrots God/Secret
-local function ScanBrainrots()
+local function ScanBrainrots(notifyWebhook)
     local brainrots = {}
     
     for _, obj in pairs(workspace:GetDescendants()) do
@@ -174,12 +331,26 @@ local function ScanBrainrots()
                         local priceText = child.Text:match("%$([%d%.]+[KMBT]?)")
                         if priceText then
                             info.price = priceText
+                            info.priceNumber = ConvertPriceToNumber(priceText)
                         end
                     end
                 end
                 
+                -- Vérifier si on peut se le permettre
+                if info.priceNumber then
+                    info.canAfford = PlayerMoney >= info.priceNumber
+                end
+                
                 table.insert(brainrots, info)
                 DebugLog("🎭 BRAINROT " .. rarity .. " TROUVÉ: " .. obj.Name .. " | Prix: " .. (info.price or "N/A"))
+                
+                -- Notifier le webhook pour les nouveaux spawns (seulement si sur le tapis rouge)
+                if notifyWebhook and RedCarpetPosition and info.position then
+                    local distanceFromCarpet = (info.position - RedCarpetPosition).Magnitude
+                    if distanceFromCarpet < 50 then -- Sur le tapis = nouveau spawn
+                        NotifyBrainrotSpawn(info)
+                    end
+                end
             end
         end
     end
@@ -237,6 +408,8 @@ local function DebugLog(message, level)
         warn(prefix .. ": " .. tostring(message))
     elseif level == "error" then
         prefix = "❌ ERROR"
+        -- Envoyer l'erreur au webhook
+        NotifyError(tostring(message), "DebugLog Error")
         error(prefix .. ": " .. tostring(message))
     else
         print(prefix .. ": " .. tostring(message))
@@ -525,8 +698,8 @@ local function AutoBuyBrainrots()
         DetectPlayerMoney()
         DebugLog("💰 Argent joueur: $" .. tostring(PlayerMoney))
         
-        -- Scanner les brainrots disponibles
-        local brainrots = ScanBrainrots()
+        -- Scanner les brainrots disponibles (avec notifications webhook)
+        local brainrots = ScanBrainrots(true)
         local targetBrainrot = nil
         
         -- Chercher le meilleur brainrot God/Secret qu'on peut se permettre
@@ -561,20 +734,28 @@ local function AutoBuyBrainrots()
                 DebugLog("✅ Arrivé près du brainrot, tentative d'achat...")
                 
                 -- Appuyer sur E pour acheter
-                game:GetService("VirtualInputManager"):SendKeyEvent(true, "E", false, game)
-                wait(0.1)
-                game:GetService("VirtualInputManager"):SendKeyEvent(false, "E", false, game)
+                local buySuccess = pcall(function()
+                    game:GetService("VirtualInputManager"):SendKeyEvent(true, "E", false, game)
+                    wait(0.1)
+                    game:GetService("VirtualInputManager"):SendKeyEvent(false, "E", false, game)
+                end)
                 
                 buyAttempts = buyAttempts + 1
                 DebugLog("🔥 ACHAT TENTÉ #" .. buyAttempts .. ": " .. targetBrainrot.name)
                 
-                -- Attendre que le brainrot commence à se déplacer vers notre base
-                wait(2)
+                -- Notifier le webhook de la tentative d'achat
+                NotifyAutoBuy(targetBrainrot, buySuccess)
                 
-                -- TODO: Suivre le brainrot jusqu'à la base si nécessaire
-                DebugLog("✅ ACHAT TERMINÉ pour: " .. targetBrainrot.name)
+                if buySuccess then
+                    -- Attendre que le brainrot commence à se déplacer vers notre base
+                    wait(2)
+                    DebugLog("✅ ACHAT TERMINÉ pour: " .. targetBrainrot.name)
+                else
+                    DebugLog("❌ ERREUR lors de l'achat: " .. targetBrainrot.name, "error")
+                end
             else
                 DebugLog("❌ Échec déplacement vers: " .. targetBrainrot.name, "warn")
+                NotifyAutoBuy(targetBrainrot, false)
             end
             
             BuyingBrainrot = false
@@ -854,6 +1035,112 @@ local TestProximityButton = DebugTab:CreateButton({
    end,
 })
 
+-- 📡 ONGLET WEBHOOK
+local WebhookTab = Window:CreateTab("📡 Discord", 4483362458)
+
+local WebhookConfigSection = WebhookTab:CreateSection("⚙️ Configuration Webhook")
+
+local WebhookInput = WebhookTab:CreateInput({
+   Name = "🔗 URL Webhook Discord",
+   PlaceholderText = "https://discord.com/api/webhooks/...",
+   RemoveTextAfterFocusLost = false,
+   Flag = "WebhookURL",
+   Callback = function(Text)
+      WebhookConfig.url = Text
+      if Text ~= "" then
+         DebugLog("📡 Webhook URL configuré")
+      end
+   end,
+})
+
+local WebhookEnabledToggle = WebhookTab:CreateToggle({
+   Name = "📡 Activer Webhook",
+   CurrentValue = false,
+   Flag = "WebhookEnabled",
+   Callback = function(Value)
+      WebhookConfig.enabled = Value
+      if Value and WebhookConfig.url == "" then
+         DebugLog("⚠️ URL Webhook non configuré !", "warn")
+         WebhookConfig.enabled = false
+      else
+         DebugLog("📡 Webhook " .. (Value and "ACTIVÉ" or "DÉSACTIVÉ"))
+      end
+   end,
+})
+
+local WebhookNotificationSection = WebhookTab:CreateSection("🔔 Types de Notifications")
+
+local ErrorNotifToggle = WebhookTab:CreateToggle({
+   Name = "🚨 Notifications d'Erreurs",
+   CurrentValue = true,
+   Flag = "WebhookErrors",
+   Callback = function(Value)
+      WebhookConfig.sendErrors = Value
+      DebugLog("🚨 Notifications erreurs: " .. (Value and "ON" or "OFF"))
+   end,
+})
+
+local SpawnNotifToggle = WebhookTab:CreateToggle({
+   Name = "🎭 Spawn Brainrots God/Secret",
+   CurrentValue = true,
+   Flag = "WebhookSpawn",
+   Callback = function(Value)
+      WebhookConfig.sendBrainrotSpawn = Value
+      DebugLog("🎭 Notifications spawn: " .. (Value and "ON" or "OFF"))
+   end,
+})
+
+local BuyNotifToggle = WebhookTab:CreateToggle({
+   Name = "🛒 Résultats Auto Buy",
+   CurrentValue = true,
+   Flag = "WebhookBuy",
+   Callback = function(Value)
+      WebhookConfig.sendAutoBuy = Value
+      DebugLog("🛒 Notifications achat: " .. (Value and "ON" or "OFF"))
+   end,
+})
+
+local PlayerJoinToggle = WebhookTab:CreateToggle({
+   Name = "👤 Joueurs qui rejoignent",
+   CurrentValue = false,
+   Flag = "WebhookPlayerJoin",
+   Callback = function(Value)
+      WebhookConfig.sendPlayerJoin = Value
+      DebugLog("👤 Notifications joueurs: " .. (Value and "ON" or "OFF"))
+   end,
+})
+
+local WebhookTestSection = WebhookTab:CreateSection("🧪 Test Webhook")
+
+local TestWebhookButton = WebhookTab:CreateButton({
+   Name = "🧪 Tester Webhook",
+   Callback = function()
+      if WebhookConfig.url == "" then
+         DebugLog("❌ Configure d'abord l'URL du webhook !", "warn")
+         return
+      end
+      
+      SendDiscordWebhook(
+         "🧪 Test Webhook",
+         "Test de connexion réussi !",
+         3066993, -- Vert
+         {
+            {name = "Joueur", value = player.Name, inline = true},
+            {name = "Serveur", value = game.JobId, inline = true},
+            {name = "Status", value = "✅ Fonctionnel", inline = true}
+         }
+      )
+      DebugLog("🧪 Test webhook envoyé")
+   end,
+})
+
+local WebhookInfoSection = WebhookTab:CreateSection("📖 Instructions")
+
+local InfoLabel1 = WebhookTab:CreateLabel("1. Va sur Discord → Serveur → Paramètres")
+local InfoLabel2 = WebhookTab:CreateLabel("2. Intégrations → Webhooks → Nouveau")
+local InfoLabel3 = WebhookTab:CreateLabel("3. Copie l'URL et colle-la ci-dessus")
+local InfoLabel4 = WebhookTab:CreateLabel("4. Active le webhook et teste la connexion")
+
 -- 👁️ ONGLET ESP
 local ESPTab = Window:CreateTab("👁️ ESP", 4483362458)
 
@@ -955,6 +1242,14 @@ player.CharacterAdded:Connect(function(newCharacter)
     end
 end)
 
+-- Notifications joueurs qui rejoignent
+Players.PlayerAdded:Connect(function(newPlayer)
+    if newPlayer ~= player then
+        DebugLog("👤 NOUVEAU JOUEUR: " .. newPlayer.Name)
+        NotifyPlayerJoin(newPlayer.Name)
+    end
+end)
+
 -- 🔍 DEBUG INITIAL
 DebugLog("=== INITIALISATION GUI STEAL BRAINROT ===")
 DebugLog("👤 Joueur: " .. player.Name .. " | DisplayName: " .. player.DisplayName)
@@ -993,8 +1288,29 @@ Rayfield:Notify({
 })
 
 DebugLog("✅ MVP STEAL BRAINROT CHARGÉ AVEC SUCCÈS !")
-DebugLog("🎯 FONCTIONNALITÉS: Auto Buy God/Secret, ESP Brainrots/Players")
+DebugLog("🎯 FONCTIONNALITÉS: Auto Buy God/Secret, ESP Brainrots/Players, Webhook Discord")
 DebugLog("📖 Instructions: Ouvre F9 pour voir tous les logs de debug")
-DebugLog("🔍 Onglets: Principal (Auto Buy), ESP (Visualisation), Debug (Tests)")
+DebugLog("🔍 Onglets: Principal (Auto Buy), ESP (Visualisation), Discord (Webhooks), Debug (Tests)")
 DebugLog("⚡ PRÊT À UTILISER - Active Auto Buy pour commencer !")
+
+-- Notification webhook de démarrage
+spawn(function()
+    wait(3) -- Laisser le temps à l'utilisateur de configurer le webhook
+    if WebhookConfig.enabled and WebhookConfig.url ~= "" then
+        SendDiscordWebhook(
+            "🚀 Script Démarré",
+            "MVP Steal Brainrot lancé avec succès !",
+            3066993, -- Vert
+            {
+                {name = "Joueur", value = player.Name .. " (" .. player.DisplayName .. ")", inline = true},
+                {name = "Serveur", value = game.JobId, inline = true},
+                {name = "Joueurs présents", value = tostring(#Players:GetPlayers()), inline = true},
+                {name = "Version", value = "MVP v1.0", inline = true},
+                {name = "Fonctionnalités", value = "Auto Buy, ESP, Debug", inline = true},
+                {name = "Status", value = "✅ Opérationnel", inline = true}
+            }
+        )
+    end
+end)
+
 print("✅ MVP Steal Brainrot GUI chargée avec succès depuis Github !")
