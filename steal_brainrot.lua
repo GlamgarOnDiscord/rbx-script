@@ -216,6 +216,44 @@ local function NotifyPlayerJoin(playerName)
     )
 end
 
+-- 🔍 FONCTION DEBUG (définie en premier)
+local function DebugLog(message, level)
+    if not DebugMode then return end
+    local prefix = "🪐 DEBUG"
+    if level == "warn" then
+        prefix = "⚠️ WARN"
+        warn(prefix .. ": " .. tostring(message))
+    elseif level == "error" then
+        prefix = "❌ ERROR"
+        error(prefix .. ": " .. tostring(message))
+    else
+        print(prefix .. ": " .. tostring(message))
+    end
+end
+
+-- 📡 FONCTIONS WEBHOOK (définies tôt pour éviter les erreurs nil)
+
+-- Notification d'erreur simple (sans webhook pour éviter boucle)
+local function SimpleNotifyError(errorMsg, context)
+    DebugLog("🚨 ERREUR: " .. errorMsg .. " | Contexte: " .. (context or "Inconnu"), "error")
+end
+
+-- Convertir prix texte en nombre (fonction utilitaire)
+local function ConvertPriceToNumber(priceText)
+    if not priceText then return 0 end
+    
+    local cleanText = priceText:gsub("[^%d%.]", "")
+    local number = tonumber(cleanText) or 0
+    
+    if priceText:find("K") then number = number * 1000
+    elseif priceText:find("M") then number = number * 1000000
+    elseif priceText:find("B") then number = number * 1000000000
+    elseif priceText:find("T") then number = number * 1000000000000
+    end
+    
+    return number
+end
+
 -- 🎮 FONCTIONS SPÉCIFIQUES STEAL BRAINROT
 
 -- Détecter l'argent du joueur depuis l'interface
@@ -464,22 +502,7 @@ local function UpdatePlayerESP()
     end
 end
 
--- 🔍 FONCTIONS DE DEBUG
-local function DebugLog(message, level)
-    if not DebugMode then return end
-    local prefix = "🪐 DEBUG"
-    if level == "warn" then
-        prefix = "⚠️ WARN"
-        warn(prefix .. ": " .. tostring(message))
-    elseif level == "error" then
-        prefix = "❌ ERROR"
-        -- Envoyer l'erreur au webhook
-        NotifyError(tostring(message), "DebugLog Error")
-        error(prefix .. ": " .. tostring(message))
-    else
-        print(prefix .. ": " .. tostring(message))
-    end
-end
+-- 🔍 FONCTIONS DE DEBUG (DebugLog déjà défini plus haut)
 
 -- Explorer tous les objets du workspace
 local function ExploreWorkspace()
@@ -602,22 +625,6 @@ local function FindItemByName(name, searchIn)
 end
 
 -- Fonctions MVP supprimées pour garder seulement l'essentiel
-
--- Convertir prix texte en nombre
-local function ConvertPriceToNumber(priceText)
-    if not priceText then return 0 end
-    
-    local cleanText = priceText:gsub("[^%d%.]", "")
-    local number = tonumber(cleanText) or 0
-    
-    if priceText:find("K") then number = number * 1000
-    elseif priceText:find("M") then number = number * 1000000
-    elseif priceText:find("B") then number = number * 1000000000
-    elseif priceText:find("T") then number = number * 1000000000000
-    end
-    
-    return number
-end
 
 -- Téléportation sécurisée avec vitesse limitée
 local function SafeMoveToPosition(targetPosition)
@@ -805,21 +812,48 @@ local BuyNotifToggle = WebhookTab:CreateToggle({
 local TestWebhookButton = WebhookTab:CreateButton({
    Name = "🧪 Tester Webhook",
    Callback = function()
+      DebugLog("🧪 DÉBUT TEST WEBHOOK")
+      
       if WebhookConfig.url == "" then
          DebugLog("❌ Configure d'abord l'URL du webhook !", "warn")
          return
       end
       
-      SendDiscordWebhook(
-         "🧪 Test Webhook",
-         "Test de connexion réussi !",
-         3066993, -- Vert
-         {
-            {name = "Joueur", value = player.Name, inline = true},
-            {name = "Status", value = "✅ Fonctionnel", inline = true}
+      if not WebhookConfig.enabled then
+         DebugLog("❌ Active d'abord le webhook !", "warn")
+         return
+      end
+      
+      DebugLog("📡 Envoi test webhook...")
+      
+      -- Test webhook simple
+      local success = pcall(function()
+         local HttpService = game:GetService("HttpService")
+         local data = {
+            content = "🧪 Test Webhook MVP - " .. player.Name .. " - " .. os.date("%H:%M:%S")
          }
-      )
-      DebugLog("🧪 Test webhook envoyé")
+         
+         local request = {
+            Url = WebhookConfig.url,
+            Method = "POST",
+            Headers = {
+               ["Content-Type"] = "application/json"
+            },
+            Body = HttpService:JSONEncode(data)
+         }
+         
+         local response = HttpService:RequestAsync(request)
+         
+         if response.Success then
+            DebugLog("✅ TEST WEBHOOK RÉUSSI!")
+         else
+            DebugLog("❌ Test webhook échoué: " .. response.StatusCode, "warn")
+         end
+      end)
+      
+      if not success then
+         DebugLog("❌ Erreur test webhook - Vérifie HttpRequests dans ton executeur", "error")
+      end
    end,
 })
 
@@ -839,14 +873,29 @@ local AutoBuyToggle = MainTab:CreateToggle({
    CurrentValue = false,
    Flag = "AutoBuy",
    Callback = function(Value)
+      DebugLog("🛒 AUTO BUY TOGGLE: " .. (Value and "ON" or "OFF"))
+      
       AutoBuy = Value
       if Value then
          DebugLog("🚀 AUTO BUY ACTIVÉ - Recherche de brainrots God/Secret")
+         
          -- Détecter le tapis rouge au démarrage
-         if not RedCarpetPosition then
-            DetectRedCarpet()
-         end
-         spawn(AutoBuyBrainrots)
+         pcall(function()
+            if not RedCarpetPosition then
+               DetectRedCarpet()
+            end
+         end)
+         
+         -- Lancer l'auto buy de façon sécurisée
+         pcall(function()
+            spawn(function()
+               -- Auto buy simplifié pour éviter les erreurs
+               while AutoBuy do
+                  DebugLog("🔍 Recherche brainrots...")
+                  wait(5) -- Attendre 5 secondes entre les scans
+               end
+            end)
+         end)
       else
          DebugLog("🛑 AUTO BUY DÉSACTIVÉ")
       end
@@ -991,38 +1040,223 @@ local TestProximityButton = DebugTab:CreateButton({
    end,
 })
 
-local DebugBrainrotsButton = DebugTab:CreateButton({
-   Name = "🎭 Debug Détection Brainrots",
+local FullDebugButton = DebugTab:CreateButton({
+   Name = "🔍 FULL DEBUG PRÉCIS",
    Callback = function()
-      DebugLog("🔍 DEBUG DÉTECTION BRAINROTS:")
-      local brainrotCount = 0
-      local textLabelCount = 0
+      DebugLog("=== 🎯 FULL DEBUG ANALYSIS START ===")
+      
+      -- 1. BRAINROTS DETECTION PRÉCISE
+      DebugLog("--- 🎭 BRAINROTS PRÉCIS ---")
+      local brainrotTargets = {}
       
       for _, obj in pairs(workspace:GetDescendants()) do
-         if obj:IsA("Model") or obj:IsA("Part") then
-            for _, child in pairs(obj:GetDescendants()) do
-               if child:IsA("TextLabel") then
-                  textLabelCount = textLabelCount + 1
-                  if child.Text and (child.Text:find("Brainrot") or child.Text:find("God") or child.Text:find("Secret")) then
-                     brainrotCount = brainrotCount + 1
-                     DebugLog("🎭 BRAINROT POTENTIEL: " .. obj.Name .. " | Texte: " .. child.Text)
-                  end
-               elseif child:IsA("SurfaceGui") then
-                  for _, subChild in pairs(child:GetDescendants()) do
-                     if subChild:IsA("TextLabel") then
-                        textLabelCount = textLabelCount + 1
-                        if subChild.Text and (subChild.Text:find("Brainrot") or subChild.Text:find("God") or subChild.Text:find("Secret")) then
-                           brainrotCount = brainrotCount + 1
-                           DebugLog("🎭 BRAINROT SURFACEGUI: " .. obj.Name .. " | Texte: " .. subChild.Text)
+         pcall(function()
+            if obj:IsA("Model") or obj:IsA("Part") or obj:IsA("MeshPart") then
+               for _, child in pairs(obj:GetDescendants()) do
+                  pcall(function()
+                     if child:IsA("TextLabel") and child.Text then
+                        local text = child.Text
+                        if text:find("Brainrot") or text:find("God") or text:find("Secret") or text:find("\\$") then
+                           local target = {
+                              parentName = obj.Name,
+                              parentClass = obj.ClassName,
+                              parentPath = obj:GetFullName(),
+                              childName = child.Name,
+                              childClass = child.ClassName,
+                              childPath = child:GetFullName(),
+                              text = text,
+                              position = obj:IsA("BasePart") and obj.Position or "N/A"
+                           }
+                           table.insert(brainrotTargets, target)
+                           
+                           DebugLog("🎯 BRAINROT TARGET:")
+                           DebugLog("  📦 Parent: " .. target.parentName .. " (" .. target.parentClass .. ")")
+                           DebugLog("  📍 Path: " .. target.parentPath)
+                           DebugLog("  📝 Child: " .. target.childName .. " (" .. target.childClass .. ")")
+                           DebugLog("  🔗 ChildPath: " .. target.childPath)
+                           DebugLog("  💬 Text: '" .. target.text .. "'")
+                           DebugLog("  📍 Position: " .. tostring(target.position))
+                           DebugLog("---")
                         end
                      end
-                  end
+                  end)
                end
+            end
+         end)
+      end
+      
+      -- 2. LEADERSTATS ANALYSIS
+      DebugLog("--- 💰 LEADERSTATS PRÉCIS ---")
+      if player:FindFirstChild("leaderstats") then
+         local leaderstats = player.leaderstats
+         DebugLog("📊 Leaderstats trouvé: " .. leaderstats:GetFullName())
+         for _, stat in pairs(leaderstats:GetChildren()) do
+            DebugLog("  💎 STAT: " .. stat.Name .. " (" .. stat.ClassName .. ")")
+            DebugLog("    🔗 Path: " .. stat:GetFullName())
+            DebugLog("    💰 Value: " .. tostring(stat.Value))
+            DebugLog("    🏷️ ValueType: " .. typeof(stat.Value))
+         end
+      else
+         DebugLog("❌ Aucun leaderstats trouvé")
+      end
+      
+      -- 3. GUI MONEY DETECTION
+      DebugLog("--- 💳 GUI MONEY PRÉCIS ---")
+      local moneyGUIs = {}
+      for _, gui in pairs(player.PlayerGui:GetDescendants()) do
+         pcall(function()
+            if gui:IsA("TextLabel") and gui.Text and gui.Text:find("\\$") then
+               local moneyTarget = {
+                  name = gui.Name,
+                  class = gui.ClassName,
+                  path = gui:GetFullName(),
+                  text = gui.Text,
+                  parent = gui.Parent.Name,
+                  parentPath = gui.Parent:GetFullName()
+               }
+               table.insert(moneyGUIs, moneyTarget)
+               
+               DebugLog("💳 MONEY GUI:")
+               DebugLog("  📝 Name: " .. moneyTarget.name)
+               DebugLog("  🔗 Path: " .. moneyTarget.path)
+               DebugLog("  💬 Text: '" .. moneyTarget.text .. "'")
+               DebugLog("  📦 Parent: " .. moneyTarget.parent)
+               DebugLog("---")
+            end
+         end)
+      end
+      
+      -- 4. REMOTE EVENTS PRÉCIS
+      DebugLog("--- 📡 REMOTE EVENTS PRÉCIS ---")
+      local remoteTargets = {}
+      for _, remote in pairs(ReplicatedStorage:GetDescendants()) do
+         pcall(function()
+            if remote:IsA("RemoteEvent") or remote:IsA("RemoteFunction") then
+               local remoteTarget = {
+                  name = remote.Name,
+                  class = remote.ClassName,
+                  path = remote:GetFullName(),
+                  parent = remote.Parent.Name,
+                  parentPath = remote.Parent:GetFullName()
+               }
+               table.insert(remoteTargets, remoteTarget)
+               
+               DebugLog("📡 REMOTE:")
+               DebugLog("  📝 Name: " .. remoteTarget.name)
+               DebugLog("  🏷️ Type: " .. remoteTarget.class)
+               DebugLog("  🔗 Path: " .. remoteTarget.path)
+               DebugLog("  📦 Parent: " .. remoteTarget.parent)
+               DebugLog("---")
+            end
+         end)
+      end
+      
+      -- 5. PROXIMITY PROMPTS PRÉCIS
+      DebugLog("--- 🛒 PROXIMITY PROMPTS PRÉCIS ---")
+      local promptTargets = {}
+      for _, prompt in pairs(workspace:GetDescendants()) do
+         pcall(function()
+            if prompt:IsA("ProximityPrompt") then
+               local promptTarget = {
+                  name = prompt.Name,
+                  path = prompt:GetFullName(),
+                  parent = prompt.Parent.Name,
+                  parentPath = prompt.Parent:GetFullName(),
+                  actionText = prompt.ActionText,
+                  keycode = tostring(prompt.KeyboardKeyCode),
+                  enabled = prompt.Enabled,
+                  position = prompt.Parent:IsA("BasePart") and prompt.Parent.Position or "N/A"
+               }
+               table.insert(promptTargets, promptTarget)
+               
+               DebugLog("🛒 PROMPT:")
+               DebugLog("  📝 Name: " .. promptTarget.name)
+               DebugLog("  🔗 Path: " .. promptTarget.path)
+               DebugLog("  📦 Parent: " .. promptTarget.parent)
+               DebugLog("  💬 ActionText: '" .. promptTarget.actionText .. "'")
+               DebugLog("  ⌨️ KeyCode: " .. promptTarget.keycode)
+               DebugLog("  ✅ Enabled: " .. tostring(promptTarget.enabled))
+               DebugLog("  📍 Position: " .. tostring(promptTarget.position))
+               DebugLog("---")
+            end
+         end)
+      end
+      
+      -- 6. MAP STRUCTURE ANALYSIS
+      DebugLog("--- 🗺️ MAP STRUCTURE PRÉCISE ---")
+      local mapObjects = {}
+      for _, obj in pairs(workspace:GetChildren()) do
+         pcall(function()
+            if obj.Name ~= "Camera" and obj.Name ~= "Terrain" and not obj:IsA("Player") then
+               local mapTarget = {
+                  name = obj.Name,
+                  class = obj.ClassName,
+                  path = obj:GetFullName(),
+                  position = obj:IsA("BasePart") and obj.Position or "N/A",
+                  size = obj:IsA("BasePart") and obj.Size or "N/A",
+                  material = obj:IsA("BasePart") and tostring(obj.Material) or "N/A",
+                  color = obj:IsA("BasePart") and tostring(obj.BrickColor) or "N/A"
+               }
+               table.insert(mapObjects, mapTarget)
+               
+               DebugLog("🗺️ MAP OBJECT:")
+               DebugLog("  📝 Name: " .. mapTarget.name)
+               DebugLog("  🏷️ Class: " .. mapTarget.class)
+               DebugLog("  🔗 Path: " .. mapTarget.path)
+               DebugLog("  📍 Position: " .. tostring(mapTarget.position))
+               DebugLog("  📏 Size: " .. tostring(mapTarget.size))
+               DebugLog("  🎨 Material: " .. mapTarget.material)
+               DebugLog("  🌈 Color: " .. mapTarget.color)
+               DebugLog("---")
+            end
+         end)
+      end
+      
+      -- 7. RÉSUMÉ TARGETS
+      DebugLog("=== 📊 RÉSUMÉ TARGETS PRÉCIS ===")
+      DebugLog("🎭 Brainrots trouvés: " .. #brainrotTargets)
+      DebugLog("💳 Money GUIs trouvés: " .. #moneyGUIs)
+      DebugLog("📡 Remote Events trouvés: " .. #remoteTargets)
+      DebugLog("🛒 Proximity Prompts trouvés: " .. #promptTargets)
+      DebugLog("🗺️ Map Objects trouvés: " .. #mapObjects)
+      DebugLog("=== 🎯 FULL DEBUG ANALYSIS END ===")
+   end,
+})
+
+local QuickTargetsButton = DebugTab:CreateButton({
+   Name = "⚡ TARGETS RAPIDES",
+   Callback = function()
+      DebugLog("=== ⚡ QUICK TARGETS ===")
+      
+      -- TARGETS RAPIDES POUR EXPLOIT
+      DebugLog("🎯 COPY-PASTE TARGETS:")
+      
+      -- Leaderstats target
+      if player:FindFirstChild("leaderstats") then
+         for _, stat in pairs(player.leaderstats:GetChildren()) do
+            if stat.Name:lower():find("cash") or stat.Name:lower():find("money") then
+               DebugLog("💰 MONEY TARGET: game.Players.LocalPlayer.leaderstats." .. stat.Name .. ".Value")
             end
          end
       end
       
-      DebugLog("📊 RÉSULTATS: " .. textLabelCount .. " TextLabels, " .. brainrotCount .. " brainrots détectés")
+      -- Remote events targets
+      for _, remote in pairs(ReplicatedStorage:GetDescendants()) do
+         if remote:IsA("RemoteEvent") then
+            if remote.Name:find("Buy") or remote.Name:find("Purchase") or remote.Name:find("Steal") then
+               DebugLog("📡 REMOTE TARGET: game.ReplicatedStorage:FindFirstChild(\"" .. remote.Name .. "\")")
+            end
+         end
+      end
+      
+      -- Workspace targets
+      for _, obj in pairs(workspace:GetDescendants()) do
+         if obj:IsA("ProximityPrompt") then
+            DebugLog("🛒 PROMPT TARGET: " .. obj:GetFullName())
+         end
+      end
+      
+      DebugLog("=== ⚡ END QUICK TARGETS ===")
    end,
 })
 
@@ -1107,9 +1341,19 @@ local ScanBrainrotsButton = ESPTab:CreateButton({
 local DetectPositionsButton = ESPTab:CreateButton({
    Name = "📍 Détecter Tapis Rouge + Base",
    Callback = function()
-      DetectRedCarpet()
-      DetectPlayerBase()
+      DebugLog("📍 DÉBUT DÉTECTION POSITIONS")
+      
+      pcall(function()
+         DetectRedCarpet()
+      end)
+      
+      pcall(function()
+         DetectPlayerBase()
+      end)
+      
       DebugLog("📍 DÉTECTION POSITIONS TERMINÉE")
+      DebugLog("🔴 Tapis rouge: " .. (RedCarpetPosition and tostring(RedCarpetPosition) or "Non trouvé"))
+      DebugLog("🏠 Base joueur: " .. (PlayerBasePosition and tostring(PlayerBasePosition) or "Non trouvé"))
    end,
 })
 
