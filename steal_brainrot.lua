@@ -437,283 +437,59 @@ local function IsBrainrotGodOrSecret(brainrot)
     return false, nil
 end
 
--- Détecter le tapis rouge (position centrale)
+-- Détecter le tapis rouge (position centrale) - PATH EXACT
 local function DetectRedCarpet()
     DebugLog("🔍 Recherche du tapis rouge...")
     
-    for _, part in pairs(workspace:GetDescendants()) do
+    -- PATH EXACT: Workspace.Map.Carpet
+    local success, result = pcall(function()
+        local map = workspace:FindFirstChild("Map")
+        if map then
+            local carpet = map:FindFirstChild("Carpet")
+            if carpet and carpet:IsA("BasePart") then
+                RedCarpetPosition = carpet.Position
+                DebugLog("✅ TAPIS ROUGE TROUVÉ: " .. carpet:GetFullName() .. " | Position: " .. tostring(RedCarpetPosition))
+                return RedCarpetPosition
+            end
+        end
+    end)
+    
+    if success and result then
+        return result
+    end
+    
+    -- Fallback: chercher par nom "Carpet" dans workspace
+    for _, obj in pairs(workspace:GetDescendants()) do
         pcall(function()
-            if part:IsA("BasePart") then
-                local isRed = false
-                local isLarge = false
-                
-                -- Vérifier la couleur
-                if part.BrickColor and (part.BrickColor == BrickColor.new("Bright red") or part.BrickColor == BrickColor.new("Really red")) then
-                    isRed = true
-                elseif part.Material == Enum.Material.Carpet then
-                    isRed = true
-                elseif part.Name:lower():find("carpet") or part.Name:lower():find("tapis") then
-                    isRed = true
-                end
-                
-                -- Vérifier la taille
-                if part.Size and (part.Size.X > 15 or part.Size.Z > 15) then
-                    isLarge = true
-                end
-                
-                if isRed and isLarge then
-                    RedCarpetPosition = part.Position
-                    DebugLog("🔴 TAPIS ROUGE DÉTECTÉ: " .. part.Name .. " | Position: " .. tostring(RedCarpetPosition))
-                    return RedCarpetPosition
-                end
+            if obj.Name == "Carpet" and obj:IsA("BasePart") then
+                RedCarpetPosition = obj.Position
+                DebugLog("✅ TAPIS ROUGE TROUVÉ (fallback): " .. obj:GetFullName() .. " | Position: " .. tostring(RedCarpetPosition))
+                return RedCarpetPosition
             end
         end)
     end
     
-    DebugLog("❌ Tapis rouge non trouvé", "warn")
+    DebugLog("❌ Tapis rouge non trouvé - Vérifiez Workspace.Map.Carpet", "warn")
     return nil
 end
 
--- Détecter la base du joueur
+-- Détecter la base du joueur - PATTERN EXACT
 local function DetectPlayerBase()
     DebugLog("🔍 Recherche de la base du joueur...")
     
-    local playerName = player.Name
-    local bases = {}
-    
-    -- Méthode 1: Chercher dans workspace les bases/plots
-    for _, obj in pairs(workspace:GetChildren()) do
+    -- PATTERN EXACT: nom contient "structure base home"
+    for _, obj in pairs(workspace:GetDescendants()) do
         pcall(function()
-            if obj:IsA("Model") then
+            if obj:IsA("Model") or obj:IsA("BasePart") then
                 local objName = obj.Name:lower()
                 
-                -- Patterns pour identifier les bases
-                if objName:find("base") or objName:find("plot") or objName:find("tycoon") or 
-                   objName:find(playerName:lower()) or objName:find("spawn") then
-                    
+                -- Pattern exact donné par l'utilisateur
+                if objName:find("structure") and objName:find("base") and objName:find("home") then
                     local position = nil
-                    if obj.PrimaryPart then
-                        position = obj.PrimaryPart.Position
-                    else
-                        pcall(function()
-                            local pivot = obj:GetPivot()
-                            if pivot then
-                                position = pivot.Position
-                            end
-                        end)
-                    end
                     
-                    if position then
-                        table.insert(bases, {obj = obj, position = position, name = obj.Name})
-                        DebugLog("🏠 Base candidate: " .. obj.Name .. " à " .. tostring(position))
-                    end
-                end
-            end
-        end)
-    end
-    
-    -- Méthode 2: Chercher les zones vertes/tapis de collecte proches  
-    if character and rootPart then
-        local playerPos = rootPart.Position
-        
-        for _, obj in pairs(workspace:GetDescendants()) do
-            pcall(function()
-                if obj:IsA("BasePart") then
-                    local material = tostring(obj.Material)
-                    local color = tostring(obj.BrickColor)
-                    local name = obj.Name:lower()
-                    
-                    -- Identifier les tapis/zones de collecte (verts dans l'image)
-                    if (color:find("Green") or material:find("Grass") or 
-                        name:find("collect") or name:find("money") or name:find("cash")) and
-                       (playerPos - obj.Position).Magnitude < 100 then
-                        
-                        table.insert(bases, {
-                            obj = obj, 
-                            position = obj.Position, 
-                            name = "Zone collecte - " .. obj.Name,
-                            type = "collecte"
-                        })
-                        DebugLog("💚 Zone collecte détectée: " .. obj.Name .. " à " .. tostring(obj.Position))
-                    end
-                end
-            end)
-        end
-    end
-    
-    -- Sélectionner la meilleure base
-    if #bases > 0 then
-        -- Prioriser les bases avec le nom du joueur
-        for _, base in pairs(bases) do
-            if base.name:lower():find(playerName:lower()) then
-                PlayerBasePosition = base.position
-                DebugLog("✅ Base joueur trouvée (nom): " .. base.name .. " à " .. tostring(PlayerBasePosition))
-                return PlayerBasePosition
-            end
-        end
-        
-        -- Sinon prendre la plus proche
-        if character and rootPart then
-            local playerPos = rootPart.Position
-            local closestBase = nil
-            local closestDistance = math.huge
-            
-            for _, base in pairs(bases) do
-                local distance = (playerPos - base.position).Magnitude
-                if distance < closestDistance then
-                    closestDistance = distance
-                    closestBase = base
-                end
-            end
-            
-            if closestBase then
-                PlayerBasePosition = closestBase.position
-                DebugLog("✅ Base la plus proche: " .. closestBase.name .. " à " .. tostring(PlayerBasePosition))
-                return PlayerBasePosition
-            end
-        end
-    end
-    
-    -- Méthode 3: Position spawn comme fallback
-    if character and rootPart then
-        PlayerBasePosition = rootPart.Position
-        DebugLog("🏠 Base par défaut (position actuelle): " .. tostring(PlayerBasePosition))
-        return PlayerBasePosition
-    end
-    
-    DebugLog("❌ Base joueur non trouvée", "warn")
-    return nil
-end
-
--- Scanner tous les brainrots dans Workspace 
-local function ScanBrainrots(notifyWebhook)
-    local brainrots = {}
-    
-    DebugLog("🔍 Scan brainrots dans Workspace...")
-    
-    pcall(function()
-        -- NOUVEAU: Scanner directement workspace:GetChildren() pour les Models principaux
-        for _, obj in pairs(workspace:GetChildren()) do
-            pcall(function()
-                if obj:IsA("Model") and obj.Name ~= "Camera" and obj.Name ~= "Terrain" and not obj:IsA("Player") then
-                    
-                    local isBrainrot = false
-                    local rarity = "Unknown"
-                    local price = "N/A"
-                    local priceNumber = 0
-                    local hasRarityLabel = false
-                    local hasPriceLabel = false
-                    
-                    -- NOUVELLE MÉTHODE: Détection stricte par structure brainrot
-                    -- Un vrai brainrot DOIT avoir à la fois un nom spécifique ET des labels de rareté/prix
-                    
-                    local nameLower = obj.Name:lower()
-                    
-                    -- Noms EXACTS de brainrots connus (plus restrictif)
-                    local knownBrainrots = {
-                        "noobini pizzanini", "pizzanini", "noobini",
-                        "trippi troppi", "troppi", "trippi", 
-                        "tung tung tung sahur", "sahur", "tung",
-                        "sigma", "ohio", "skibidi", "gyatt", "rizz"
-                    }
-                    
-                    local nameMatches = false
-                    for _, knownName in pairs(knownBrainrots) do
-                        if nameLower == knownName or nameLower:find(knownName) then
-                            nameMatches = true
-                            DebugLog("🎯 Nom brainrot reconnu: " .. obj.Name .. " (pattern: " .. knownName .. ")")
-                            break
-                        end
-                    end
-                    
-                    -- Méthode 2: Analyser TextLabels pour rareté et prix (en évitant tableaux)
-                    for _, child in pairs(obj:GetDescendants()) do
-                        pcall(function()
-                            if child:IsA("TextLabel") and child.Text then
-                                local text = child.Text
-                                
-                                -- CORRECTION: Vérifier que ce n'est pas sur un tableau/board
-                                local isOnBoard = false
-                                local parent = child.Parent
-                                while parent and parent ~= obj do
-                                    local parentName = parent.Name:lower()
-                                    if parentName:find("board") or parentName:find("tableau") or parentName:find("panel") or 
-                                       parentName:find("generation") or parentName:find("codes") or parentName:find("main") then
-                                        isOnBoard = true
-                                        DebugLog("⏭️ Texte '" .. text .. "' trouvé sur tableau " .. parent.Name .. " - ignoré")
-                                        break
-                                    end
-                                    parent = parent.Parent
-                                end
-                                
-                                if not isOnBoard then
-                                    -- NOUVEAU: Scrapping précis de la rareté 
-                                    if text:find("Brainrot God") then
-                                        rarity = "God"
-                                        hasRarityLabel = true
-                                        DebugLog("🌟 RARETÉ God détectée: " .. obj.Name)
-                                    elseif text:find("Secret") and not text:find("Codes") and not text:find("Main") then
-                                        rarity = "Secret"
-                                        hasRarityLabel = true
-                                        DebugLog("🔮 RARETÉ Secret détectée: " .. obj.Name)
-                                    elseif text == "Common" then
-                                        rarity = "Common"
-                                        hasRarityLabel = true
-                                        DebugLog("⚪ RARETÉ Common détectée: " .. obj.Name)
-                                    elseif text == "Rare" then
-                                        rarity = "Rare"
-                                        hasRarityLabel = true
-                                        DebugLog("🔵 RARETÉ Rare détectée: " .. obj.Name)
-                                    elseif text == "Epic" then
-                                        rarity = "Epic"
-                                        hasRarityLabel = true
-                                        DebugLog("🟣 RARETÉ Epic détectée: " .. obj.Name)
-                                    elseif text == "Legendary" then
-                                        rarity = "Legendary"
-                                        hasRarityLabel = true
-                                        DebugLog("🟠 RARETÉ Legendary détectée: " .. obj.Name)
-                                    elseif text == "Mythique" or text == "Mythical" then
-                                        rarity = "Mythique"
-                                        hasRarityLabel = true
-                                        DebugLog("🔴 RARETÉ Mythique détectée: " .. obj.Name)
-                                    end
-                                    
-                                    -- Détection prix stricte (prix d'achat, pas revenu)
-                                    if text:find("%$%d") and not text:find("/s") and not text:find("MULTI") and not text:find("x") then
-                                        local extractedPrice = text:match("%$([%d%.]+[KMBT]?)")
-                                        if extractedPrice then
-                                            price = "$" .. extractedPrice
-                                            priceNumber = ConvertPriceToNumber(extractedPrice)
-                                            hasPriceLabel = true
-                                            DebugLog("💰 PRIX détecté: " .. price .. " pour " .. obj.Name)
-                                        end
-                                    end
-                                    
-                                    -- Détection revenu (pour confirmation structure brainrot)
-                                    if text:find("%$/s") or text:find("%$ /s") then
-                                        DebugLog("💸 REVENU détecté: " .. text .. " pour " .. obj.Name)
-                                        -- Les brainrots ont un revenu, c'est bon signe
-                                    end
-                                end
-                            end
-                        end)
-                    end
-                    
-                    -- LOGIQUE STRICTE: Un brainrot DOIT avoir nom reconnu + (rareté OU prix)
-                    isBrainrot = nameMatches and (hasRarityLabel or hasPriceLabel)
-                    
-                    if isBrainrot then
-                        DebugLog("✅ BRAINROT VALIDÉ: " .. obj.Name .. " | Rareté: " .. rarity .. " | Prix: " .. price)
-                    else
-                        if nameMatches and not hasRarityLabel and not hasPriceLabel then
-                            DebugLog("⚠️ Nom brainrot trouvé mais pas de rareté/prix: " .. obj.Name)
-                        end
-                    end
-                    
-                    -- Ajouter seulement les vrais brainrots (priorité God/Secret pour auto-buy)
-                    if isBrainrot and (rarity == "God" or rarity == "Secret" or rarity == "Legendary" or rarity == "Mythique" or priceNumber > 100) then
-                        -- Obtenir position du Model
-                        local position = nil
+                    if obj:IsA("BasePart") then
+                        position = obj.Position
+                    elseif obj:IsA("Model") then
                         if obj.PrimaryPart then
                             position = obj.PrimaryPart.Position
                         else
@@ -723,37 +499,196 @@ local function ScanBrainrots(notifyWebhook)
                                     position = pivot.Position
                                 end
                             end)
-                            
-                            if not position then
+                        end
+                    end
+                    
+                    if position then
+                        PlayerBasePosition = position
+                        DebugLog("✅ BASE JOUEUR TROUVÉE: " .. obj.Name .. " | Position: " .. tostring(PlayerBasePosition) .. " | Path: " .. obj:GetFullName())
+                        return PlayerBasePosition
+                    end
+                end
+            end
+        end)
+    end
+    
+    -- Fallback: chercher par patterns alternatifs
+    local playerName = player.Name:lower()
+    for _, obj in pairs(workspace:GetDescendants()) do
+        pcall(function()
+            if obj:IsA("Model") or obj:IsA("BasePart") then
+                local objName = obj.Name:lower()
+                
+                -- Patterns alternatifs
+                if objName:find("base") and (objName:find(playerName) or objName:find("home") or objName:find("structure")) then
+                    local position = nil
+                    
+                    if obj:IsA("BasePart") then
+                        position = obj.Position
+                    elseif obj:IsA("Model") and obj.PrimaryPart then
+                        position = obj.PrimaryPart.Position
+                    end
+                    
+                    if position then
+                        PlayerBasePosition = position
+                        DebugLog("✅ BASE JOUEUR TROUVÉE (fallback): " .. obj.Name .. " | Position: " .. tostring(PlayerBasePosition))
+                        return PlayerBasePosition
+                    end
+                end
+            end
+        end)
+    end
+    
+    -- Dernier fallback: position actuelle
+    if character and rootPart then
+        PlayerBasePosition = rootPart.Position
+        DebugLog("🏠 Base par défaut (position actuelle): " .. tostring(PlayerBasePosition))
+        return PlayerBasePosition
+    end
+    
+    DebugLog("❌ Base joueur non trouvée - Cherchez objets avec 'structure base home'", "warn")
+    return nil
+end
+
+-- Scanner tous les brainrots - NOUVEAUX PATHS EXACTS
+local function ScanBrainrots(notifyWebhook)
+    local brainrots = {}
+    
+    DebugLog("🔍 Scan brainrots dans Workspace.movingAnimals...")
+    
+    pcall(function()
+        -- PATH EXACT: Workspace.movingAnimals
+        local movingAnimals = workspace:FindFirstChild("movingAnimals")
+        if not movingAnimals then
+            DebugLog("❌ Workspace.movingAnimals non trouvé")
+            return
+        end
+        
+        DebugLog("✅ movingAnimals trouvé, scan des brainrots...")
+        
+        -- Scanner tous les Models dans movingAnimals
+        for _, obj in pairs(movingAnimals:GetChildren()) do
+            pcall(function()
+                if obj:IsA("Model") then
+                    DebugLog("🔍 Analyse Model: " .. obj.Name .. " | Path: " .. obj:GetFullName())
+                    
+                    -- Chercher HumanoidRootPart dans le Model
+                    local humanoidRootPart = obj:FindFirstChild("HumanoidRootPart")
+                    if humanoidRootPart then
+                        DebugLog("✅ HumanoidRootPart trouvé dans " .. obj.Name)
+                        
+                        -- Analyser les 6 textes du Model parent
+                        local texts = {}
+                        local rarity = "Unknown"
+                        local price = "N/A"
+                        local revenue = "N/A"
+                        local priceNumber = 0
+                        local hasValidStructure = false
+                        
+                        for _, child in pairs(obj:GetDescendants()) do
+                            pcall(function()
+                                if child:IsA("TextLabel") and child.Text and child.Text ~= "" then
+                                    table.insert(texts, child.Text)
+                                    local text = child.Text
+                                    
+                                    DebugLog("📝 Texte trouvé: '" .. text .. "'")
+                                    
+                                    -- Analyser selon les exemples donnés par l'utilisateur
+                                    -- 1. Gold, 2. Common, 3. $9/s, 4. 1K
+                                    
+                                    -- Détection rareté (exemples: "Gold", "Common")
+                                    if text == "Common" or text == "Rare" or text == "Epic" or 
+                                       text == "Legendary" or text == "Mythique" or text == "Gold" or
+                                       text:find("God") or text:find("Secret") then
+                                        rarity = text
+                                        hasValidStructure = true
+                                        DebugLog("🎨 Rareté détectée: " .. rarity)
+                                    end
+                                    
+                                    -- Détection revenu (exemple: "$9/s")
+                                    if text:find("%$/s") or text:find("%$ /s") then
+                                        revenue = text
+                                        hasValidStructure = true
+                                        DebugLog("💸 Revenu détecté: " .. revenue)
+                                    end
+                                    
+                                    -- Détection prix (exemple: "1K", pas de /s)
+                                    if text:find("K$") or text:find("M$") or text:find("B$") or 
+                                       (text:find("K") and not text:find("/s")) or
+                                       (text:find("M") and not text:find("/s")) or
+                                       (text:match("^%d+$")) then -- Nombre pur comme "1000"
+                                        local numberPart = text:match("(%d+)")
+                                        if numberPart then
+                                            local num = tonumber(numberPart) or 0
+                                            if text:find("K") then num = num * 1000
+                                            elseif text:find("M") then num = num * 1000000
+                                            elseif text:find("B") then num = num * 1000000000 end
+                                            
+                                            price = text
+                                            priceNumber = num
+                                            hasValidStructure = true
+                                            DebugLog("💰 Prix détecté: " .. price .. " = " .. priceNumber)
+                                        end
+                                    end
+                                end
+                            end)
+                        end
+                        
+                        DebugLog("📊 Analyse " .. obj.Name .. ": " .. #texts .. " textes trouvés")
+                        DebugLog("  🎨 Rareté: " .. rarity)
+                        DebugLog("  💰 Prix: " .. price)
+                        DebugLog("  💸 Revenu: " .. revenue)
+                        DebugLog("  ✅ Structure valide: " .. tostring(hasValidStructure))
+                        
+                        -- Si structure valide (au moins rareté OU prix), c'est un brainrot
+                        if hasValidStructure and (rarity ~= "Unknown" or priceNumber > 0) then
+                            -- Obtenir position du Model  
+                            local position = nil
+                            if obj.PrimaryPart then
+                                position = obj.PrimaryPart.Position
+                            else
                                 pcall(function()
-                                    local cframe, size = obj:GetBoundingBox()
-                                    if cframe then
-                                        position = cframe.Position
+                                    local pivot = obj:GetPivot()
+                                    if pivot then
+                                        position = pivot.Position
                                     end
                                 end)
+                                
+                                if not position then
+                                    pcall(function()
+                                        local cframe, size = obj:GetBoundingBox()
+                                        if cframe then
+                                            position = cframe.Position
+                                        end
+                                    end)
+                                end
                             end
-                        end
 
-                        local info = {
-                            object = obj,
-                            rarity = rarity,
-                            position = position,
-                            name = obj.Name,
-                            price = price,
-                            priceNumber = priceNumber,
-                            canAfford = PlayerMoney >= priceNumber
-                        }
-                        
-                        table.insert(brainrots, info)
-                        DebugLog("✅ BRAINROT AJOUTÉ: " .. obj.Name .. " | Rareté: " .. rarity .. " | Prix: " .. price)
-                        
-                        -- Notifier webhook pour nouveaux spawns sur tapis rouge
-                        if notifyWebhook and RedCarpetPosition and position and (rarity == "God" or rarity == "Secret") then
-                            local distanceFromCarpet = (position - RedCarpetPosition).Magnitude
-                            if distanceFromCarpet < 50 then -- Sur le tapis = nouveau spawn
-                                NotifyBrainrotSpawn(info)
+                            local info = {
+                                object = obj,
+                                rarity = rarity,
+                                position = position,
+                                name = obj.Name,
+                                price = price,
+                                revenue = revenue,
+                                priceNumber = priceNumber,
+                                canAfford = PlayerMoney >= priceNumber,
+                                allTexts = texts
+                            }
+                            
+                            table.insert(brainrots, info)
+                            DebugLog("✅ BRAINROT TROUVÉ: " .. obj.Name .. " | Rareté: " .. rarity .. " | Prix: " .. price .. " | Revenu: " .. revenue)
+                            
+                            -- Notifier webhook pour nouveaux spawns
+                            if notifyWebhook and RedCarpetPosition and position and (rarity == "God" or rarity == "Gold" or rarity:find("Secret")) then
+                                local distanceFromCarpet = (position - RedCarpetPosition).Magnitude
+                                if distanceFromCarpet < 100 then -- Proche du tapis = potentiel nouveau spawn
+                                    NotifyBrainrotSpawn(info)
+                                end
                             end
                         end
+                    else
+                        DebugLog("❌ Pas de HumanoidRootPart dans " .. obj.Name)
                     end
                 end
             end)
@@ -764,142 +699,66 @@ local function ScanBrainrots(notifyWebhook)
     return brainrots
 end
 
--- ESP pour brainrots (TOUS les brainrots détectés)
+-- ESP pour brainrots - NOUVEAUX PATHS EXACTS
 local function UpdateBrainrotESP()
     if not ESPBrainrots then return end
     
-    DebugLog("🔍 Update ESP Brainrots...")
+    DebugLog("🔍 Update ESP Brainrots avec nouveaux paths...")
     
     -- Nettoyer ancien ESP
-    for _, obj in pairs(workspace:GetChildren()) do
-        if obj:IsA("Model") then
-            RemoveESP(obj)
-        end
-    end
-    
-    -- Scanner TOUS les brainrots avec la nouvelle logique stricte
-    local espCount = 0
     pcall(function()
-        for _, obj in pairs(workspace:GetChildren()) do
-            pcall(function()
-                if obj:IsA("Model") and obj.Name ~= "Camera" and obj.Name ~= "Terrain" and not obj:IsA("Player") then
-                    
-                    local nameLower = obj.Name:lower()
-                    local knownBrainrots = {
-                        "noobini pizzanini", "pizzanini", "noobini",
-                        "trippi troppi", "troppi", "trippi", 
-                        "tung tung tung sahur", "sahur", "tung",
-                        "sigma", "ohio", "skibidi", "gyatt", "rizz"
-                    }
-                    
-                    local nameMatches = false
-                    for _, knownName in pairs(knownBrainrots) do
-                        if nameLower == knownName or nameLower:find(knownName) then
-                            nameMatches = true
-                            break
-                        end
-                    end
-                    
-                    if nameMatches then
-                        local hasRarityLabel = false
-                        local hasPriceLabel = false
-                        local rarity = "Unknown"
-                        local price = "N/A"
-                        
-                        -- Analyser TextLabels
-                        for _, child in pairs(obj:GetDescendants()) do
-                            pcall(function()
-                                if child:IsA("TextLabel") and child.Text then
-                                    local text = child.Text
-                                    
-                                    -- Vérifier que ce n'est pas sur un tableau
-                                    local isOnBoard = false
-                                    local parent = child.Parent
-                                    while parent and parent ~= obj do
-                                        local parentName = parent.Name:lower()
-                                        if parentName:find("board") or parentName:find("tableau") or parentName:find("panel") or 
-                                           parentName:find("generation") or parentName:find("codes") or parentName:find("main") then
-                                            isOnBoard = true
-                                            break
-                                        end
-                                        parent = parent.Parent
-                                    end
-                                    
-                                    if not isOnBoard then
-                                        -- Détection rareté
-                                        if text:find("Brainrot God") then
-                                            rarity = "God"
-                                            hasRarityLabel = true
-                                        elseif text:find("Secret") and not text:find("Codes") and not text:find("Main") then
-                                            rarity = "Secret"
-                                            hasRarityLabel = true
-                                        elseif text == "Common" then
-                                            rarity = "Common"
-                                            hasRarityLabel = true
-                                        elseif text == "Rare" then
-                                            rarity = "Rare"
-                                            hasRarityLabel = true
-                                        elseif text == "Epic" then
-                                            rarity = "Epic"
-                                            hasRarityLabel = true
-                                        elseif text == "Legendary" then
-                                            rarity = "Legendary"
-                                            hasRarityLabel = true
-                                        elseif text == "Mythique" or text == "Mythical" then
-                                            rarity = "Mythique"
-                                            hasRarityLabel = true
-                                        end
-                                        
-                                        -- Détection prix
-                                        if text:find("%$%d") and not text:find("/s") and not text:find("MULTI") and not text:find("x") then
-                                            local extractedPrice = text:match("%$([%d%.]+[KMBT]?)")
-                                            if extractedPrice then
-                                                price = "$" .. extractedPrice
-                                                hasPriceLabel = true
-                                            end
-                                        end
-                                    end
-                                end
-                            end)
-                        end
-                        
-                        -- Si c'est un brainrot valide, ajouter ESP
-                        local isBrainrot = nameMatches and (hasRarityLabel or hasPriceLabel)
-                        
-                        if isBrainrot then
-                            local espText = rarity .. " - " .. obj.Name
-                            if price ~= "N/A" then
-                                espText = espText .. "\n" .. price
-                            end
-                            
-                            -- Couleurs par rareté
-                            local color = Color3.fromRGB(200, 200, 200) -- Gris par défaut
-                            if rarity == "God" then
-                                color = Color3.fromRGB(255, 215, 0) -- Or
-                            elseif rarity == "Secret" then
-                                color = Color3.fromRGB(255, 255, 255) -- Blanc
-                            elseif rarity == "Legendary" then
-                                color = Color3.fromRGB(255, 140, 0) -- Orange
-                            elseif rarity == "Mythique" then
-                                color = Color3.fromRGB(255, 0, 0) -- Rouge
-                            elseif rarity == "Epic" then
-                                color = Color3.fromRGB(128, 0, 255) -- Violet
-                            elseif rarity == "Rare" then
-                                color = Color3.fromRGB(0, 100, 255) -- Bleu
-                            elseif rarity == "Common" then
-                                color = Color3.fromRGB(255, 255, 255) -- Blanc
-                            end
-                            
-                            CreateESP(obj, espText, color)
-                            espCount = espCount + 1
-                        end
-                    end
+        local movingAnimals = workspace:FindFirstChild("movingAnimals")
+        if movingAnimals then
+            for _, obj in pairs(movingAnimals:GetChildren()) do
+                if obj:IsA("Model") then
+                    RemoveESP(obj)
                 end
-            end)
+            end
         end
     end)
     
-    DebugLog("✅ ESP Brainrots: " .. espCount .. " affichés")
+    -- Scanner TOUS les brainrots avec les VRAIES infos
+    local brainrots = ScanBrainrots(false) -- false = pas de notification webhook
+    
+    for _, info in pairs(brainrots) do
+        local obj = info.object
+        local rarity = info.rarity
+        local price = info.price
+        local revenue = info.revenue
+        
+        -- Créer le texte ESP
+        local espText = rarity .. " - " .. obj.Name
+        if price ~= "N/A" then
+            espText = espText .. "\n💰 " .. price
+        end
+        if revenue ~= "N/A" then
+            espText = espText .. "\n💸 " .. revenue
+        end
+        
+        -- Couleurs par rareté
+        local color = Color3.fromRGB(200, 200, 200) -- Gris par défaut
+        if rarity == "God" or rarity:find("God") then
+            color = Color3.fromRGB(255, 215, 0) -- Or
+        elseif rarity == "Gold" then
+            color = Color3.fromRGB(255, 223, 0) -- Or clair
+        elseif rarity == "Secret" or rarity:find("Secret") then
+            color = Color3.fromRGB(255, 255, 255) -- Blanc
+        elseif rarity == "Legendary" then
+            color = Color3.fromRGB(255, 140, 0) -- Orange
+        elseif rarity == "Mythique" then
+            color = Color3.fromRGB(255, 0, 0) -- Rouge
+        elseif rarity == "Epic" then
+            color = Color3.fromRGB(128, 0, 255) -- Violet
+        elseif rarity == "Rare" then
+            color = Color3.fromRGB(0, 100, 255) -- Bleu
+        elseif rarity == "Common" then
+            color = Color3.fromRGB(255, 255, 255) -- Blanc
+        end
+        
+        CreateESP(obj, espText, color)
+    end
+    
+    DebugLog("✅ ESP Brainrots: " .. #brainrots .. " affichés depuis movingAnimals")
 end
 
 -- ESP pour joueurs
@@ -2279,6 +2138,116 @@ local AllModelsESPButton = ESPTab:CreateButton({
             end
          end
       end
+   end,
+})
+
+local TestNewPathsButton = ESPTab:CreateButton({
+   Name = "🎯 Test Nouveaux Paths",
+   Callback = function()
+      DebugLog("=== 🎯 TEST NOUVEAUX PATHS ===")
+      
+      -- Test 1: Workspace.Map.Carpet
+      DebugLog("🔍 Test Workspace.Map.Carpet...")
+      pcall(function()
+         local map = workspace:FindFirstChild("Map")
+         if map then
+            DebugLog("✅ Map trouvé: " .. map:GetFullName())
+            local carpet = map:FindFirstChild("Carpet")
+            if carpet then
+               DebugLog("✅ Carpet trouvé: " .. carpet:GetFullName())
+               DebugLog("📍 Position: " .. tostring(carpet.Position))
+               DebugLog("📏 Type: " .. carpet.ClassName)
+            else
+               DebugLog("❌ Carpet pas trouvé dans Map")
+               -- Lister ce qui est dans Map
+               DebugLog("📁 Contenu de Map:")
+               for _, child in pairs(map:GetChildren()) do
+                  DebugLog("  - " .. child.Name .. " (" .. child.ClassName .. ")")
+               end
+            end
+         else
+            DebugLog("❌ Map pas trouvé dans Workspace")
+         end
+      end)
+      
+      -- Test 2: Workspace.movingAnimals
+      DebugLog("🔍 Test Workspace.movingAnimals...")
+      pcall(function()
+         local movingAnimals = workspace:FindFirstChild("movingAnimals")
+         if movingAnimals then
+            DebugLog("✅ movingAnimals trouvé: " .. movingAnimals:GetFullName())
+            DebugLog("📦 Nombre d'enfants: " .. #movingAnimals:GetChildren())
+            
+            local modelCount = 0
+            local humanoidCount = 0
+            
+            for _, child in pairs(movingAnimals:GetChildren()) do
+               if child:IsA("Model") then
+                  modelCount = modelCount + 1
+                  DebugLog("📦 Model: " .. child.Name)
+                  
+                  local humanoidRootPart = child:FindFirstChild("HumanoidRootPart")
+                  if humanoidRootPart then
+                     humanoidCount = humanoidCount + 1
+                     DebugLog("  ✅ HumanoidRootPart: " .. humanoidRootPart:GetFullName())
+                     
+                     -- Compter TextLabels
+                     local textCount = 0
+                     for _, desc in pairs(child:GetDescendants()) do
+                        if desc:IsA("TextLabel") and desc.Text ~= "" then
+                           textCount = textCount + 1
+                        end
+                     end
+                     DebugLog("  📝 TextLabels: " .. textCount)
+                  else
+                     DebugLog("  ❌ Pas de HumanoidRootPart")
+                  end
+               end
+            end
+            
+            DebugLog("📊 Résumé movingAnimals:")
+            DebugLog("  📦 Models totaux: " .. modelCount)
+            DebugLog("  🤖 Avec HumanoidRootPart: " .. humanoidCount)
+         else
+            DebugLog("❌ movingAnimals pas trouvé dans Workspace")
+         end
+      end)
+      
+      -- Test 3: Base avec "structure base home"
+      DebugLog("🔍 Test base 'structure base home'...")
+      pcall(function()
+         local found = false
+         for _, obj in pairs(workspace:GetDescendants()) do
+            if obj:IsA("Model") or obj:IsA("BasePart") then
+               local objName = obj.Name:lower()
+               if objName:find("structure") and objName:find("base") and objName:find("home") then
+                  DebugLog("✅ Base trouvée: " .. obj:GetFullName())
+                  DebugLog("📍 Position: " .. tostring(obj:IsA("BasePart") and obj.Position or "Model"))
+                  found = true
+               end
+            end
+         end
+         if not found then
+            DebugLog("❌ Aucune base avec 'structure base home' trouvée")
+            DebugLog("🔍 Recherche patterns alternatifs...")
+            
+            local baseCount = 0
+            for _, obj in pairs(workspace:GetDescendants()) do
+               if obj:IsA("Model") or obj:IsA("BasePart") then
+                  local objName = obj.Name:lower()
+                  if objName:find("base") then
+                     baseCount = baseCount + 1
+                     if baseCount <= 5 then -- Limite pour pas spam
+                        DebugLog("  🏠 Base trouvée: " .. obj.Name .. " | " .. obj:GetFullName())
+                     end
+                  end
+               end
+            end
+            DebugLog("📊 Total bases trouvées: " .. baseCount)
+         end
+      end)
+      
+      DebugLog("=== FIN TEST NOUVEAUX PATHS ===")
    end,
 })
 
