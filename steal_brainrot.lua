@@ -826,9 +826,26 @@ local TestWebhookButton = WebhookTab:CreateButton({
       
       DebugLog("📡 Envoi test webhook...")
       
+      -- Vérifier HttpRequests d'abord
+      local HttpService = game:GetService("HttpService")
+      local httpEnabled = pcall(function()
+         return HttpService.HttpEnabled
+      end)
+      
+      if not httpEnabled then
+         DebugLog("❌ ERREUR: HttpRequests DÉSACTIVÉ dans ton executeur !", "error")
+         DebugLog("📖 SOLUTION:")
+         DebugLog("  • Synapse X: Options → Allow HTTP Requests")
+         DebugLog("  • Krnl: Paramètres → Enable HTTP Requests")
+         DebugLog("  • Script-Ware: Settings → HTTP Requests → ON")
+         DebugLog("  • Fluxus: Settings → HTTP → Enable")
+         return
+      end
+      
+      DebugLog("✅ HttpRequests activé, test en cours...")
+      
       -- Test webhook simple
-      local success = pcall(function()
-         local HttpService = game:GetService("HttpService")
+      local success, result = pcall(function()
          local data = {
             content = "🧪 Test Webhook MVP - " .. player.Name .. " - " .. os.date("%H:%M:%S")
          }
@@ -846,8 +863,10 @@ local TestWebhookButton = WebhookTab:CreateButton({
          
          if response.Success then
             DebugLog("✅ TEST WEBHOOK RÉUSSI!")
+            return true
          else
-            DebugLog("❌ Test webhook échoué: " .. response.StatusCode, "warn")
+            DebugLog("❌ Test webhook échoué: " .. response.StatusCode .. " - " .. response.StatusMessage, "warn")
+            return false
          end
       end)
       
@@ -1058,15 +1077,28 @@ local FullDebugButton = DebugTab:CreateButton({
                         local text = child.Text
                         if text:find("Brainrot") or text:find("God") or text:find("Secret") or text:find("\\$") then
                            local target = {
-                              parentName = obj.Name,
-                              parentClass = obj.ClassName,
-                              parentPath = obj:GetFullName(),
-                              childName = child.Name,
-                              childClass = child.ClassName,
-                              childPath = child:GetFullName(),
+                              parentName = "N/A",
+                              parentClass = "N/A",
+                              parentPath = "N/A",
+                              childName = "N/A",
+                              childClass = "N/A",
+                              childPath = "N/A",
                               text = text,
-                              position = obj:IsA("BasePart") and obj.Position or "N/A"
+                              position = "N/A"
                            }
+                           
+                           -- Accès sécurisé aux propriétés
+                           pcall(function() target.parentName = obj.Name end)
+                           pcall(function() target.parentClass = obj.ClassName end)
+                           pcall(function() target.parentPath = obj:GetFullName() end)
+                           pcall(function() target.childName = child.Name end)
+                           pcall(function() target.childClass = child.ClassName end)
+                           pcall(function() target.childPath = child:GetFullName() end)
+                           
+                           if obj:IsA("BasePart") then
+                              pcall(function() target.position = tostring(obj.Position) end)
+                           end
+                           
                            table.insert(brainrotTargets, target)
                            
                            DebugLog("🎯 BRAINROT TARGET:")
@@ -1075,7 +1107,7 @@ local FullDebugButton = DebugTab:CreateButton({
                            DebugLog("  📝 Child: " .. target.childName .. " (" .. target.childClass .. ")")
                            DebugLog("  🔗 ChildPath: " .. target.childPath)
                            DebugLog("  💬 Text: '" .. target.text .. "'")
-                           DebugLog("  📍 Position: " .. tostring(target.position))
+                           DebugLog("  📍 Position: " .. target.position)
                            DebugLog("---")
                         end
                      end
@@ -1107,13 +1139,22 @@ local FullDebugButton = DebugTab:CreateButton({
          pcall(function()
             if gui:IsA("TextLabel") and gui.Text and gui.Text:find("\\$") then
                local moneyTarget = {
-                  name = gui.Name,
-                  class = gui.ClassName,
-                  path = gui:GetFullName(),
-                  text = gui.Text,
-                  parent = gui.Parent.Name,
-                  parentPath = gui.Parent:GetFullName()
+                  name = "N/A",
+                  class = "N/A",
+                  path = "N/A",
+                  text = "N/A",
+                  parent = "N/A",
+                  parentPath = "N/A"
                }
+               
+               -- Accès sécurisé aux propriétés
+               pcall(function() moneyTarget.name = gui.Name end)
+               pcall(function() moneyTarget.class = gui.ClassName end)
+               pcall(function() moneyTarget.path = gui:GetFullName() end)
+               pcall(function() moneyTarget.text = gui.Text end)
+               pcall(function() moneyTarget.parent = gui.Parent.Name end)
+               pcall(function() moneyTarget.parentPath = gui.Parent:GetFullName() end)
+               
                table.insert(moneyGUIs, moneyTarget)
                
                DebugLog("💳 MONEY GUI:")
@@ -1133,12 +1174,20 @@ local FullDebugButton = DebugTab:CreateButton({
          pcall(function()
             if remote:IsA("RemoteEvent") or remote:IsA("RemoteFunction") then
                local remoteTarget = {
-                  name = remote.Name,
-                  class = remote.ClassName,
-                  path = remote:GetFullName(),
-                  parent = remote.Parent.Name,
-                  parentPath = remote.Parent:GetFullName()
+                  name = "N/A",
+                  class = "N/A",
+                  path = "N/A",
+                  parent = "N/A",
+                  parentPath = "N/A"
                }
+               
+               -- Accès sécurisé aux propriétés
+               pcall(function() remoteTarget.name = remote.Name end)
+               pcall(function() remoteTarget.class = remote.ClassName end)
+               pcall(function() remoteTarget.path = remote:GetFullName() end)
+               pcall(function() remoteTarget.parent = remote.Parent.Name end)
+               pcall(function() remoteTarget.parentPath = remote.Parent:GetFullName() end)
+               
                table.insert(remoteTargets, remoteTarget)
                
                DebugLog("📡 REMOTE:")
@@ -1158,15 +1207,29 @@ local FullDebugButton = DebugTab:CreateButton({
          pcall(function()
             if prompt:IsA("ProximityPrompt") then
                local promptTarget = {
-                  name = prompt.Name,
-                  path = prompt:GetFullName(),
-                  parent = prompt.Parent.Name,
-                  parentPath = prompt.Parent:GetFullName(),
-                  actionText = prompt.ActionText,
-                  keycode = tostring(prompt.KeyboardKeyCode),
-                  enabled = prompt.Enabled,
-                  position = prompt.Parent:IsA("BasePart") and prompt.Parent.Position or "N/A"
+                  name = "N/A",
+                  path = "N/A", 
+                  parent = "N/A",
+                  parentPath = "N/A",
+                  actionText = "N/A",
+                  keycode = "N/A",
+                  enabled = "N/A",
+                  position = "N/A"
                }
+               
+               -- Accès sécurisé aux propriétés
+               pcall(function() promptTarget.name = prompt.Name end)
+               pcall(function() promptTarget.path = prompt:GetFullName() end)
+               pcall(function() promptTarget.parent = prompt.Parent.Name end)
+               pcall(function() promptTarget.parentPath = prompt.Parent:GetFullName() end)
+               pcall(function() promptTarget.actionText = prompt.ActionText end)
+               pcall(function() promptTarget.keycode = tostring(prompt.KeyboardKeyCode) end)
+               pcall(function() promptTarget.enabled = tostring(prompt.Enabled) end)
+               
+               if prompt.Parent and prompt.Parent:IsA("BasePart") then
+                  pcall(function() promptTarget.position = tostring(prompt.Parent.Position) end)
+               end
+               
                table.insert(promptTargets, promptTarget)
                
                DebugLog("🛒 PROMPT:")
@@ -1175,8 +1238,8 @@ local FullDebugButton = DebugTab:CreateButton({
                DebugLog("  📦 Parent: " .. promptTarget.parent)
                DebugLog("  💬 ActionText: '" .. promptTarget.actionText .. "'")
                DebugLog("  ⌨️ KeyCode: " .. promptTarget.keycode)
-               DebugLog("  ✅ Enabled: " .. tostring(promptTarget.enabled))
-               DebugLog("  📍 Position: " .. tostring(promptTarget.position))
+               DebugLog("  ✅ Enabled: " .. promptTarget.enabled)
+               DebugLog("  📍 Position: " .. promptTarget.position)
                DebugLog("---")
             end
          end)
@@ -1189,22 +1252,35 @@ local FullDebugButton = DebugTab:CreateButton({
          pcall(function()
             if obj.Name ~= "Camera" and obj.Name ~= "Terrain" and not obj:IsA("Player") then
                local mapTarget = {
-                  name = obj.Name,
-                  class = obj.ClassName,
-                  path = obj:GetFullName(),
-                  position = obj:IsA("BasePart") and obj.Position or "N/A",
-                  size = obj:IsA("BasePart") and obj.Size or "N/A",
-                  material = obj:IsA("BasePart") and tostring(obj.Material) or "N/A",
-                  color = obj:IsA("BasePart") and tostring(obj.BrickColor) or "N/A"
+                  name = "N/A",
+                  class = "N/A", 
+                  path = "N/A",
+                  position = "N/A",
+                  size = "N/A",
+                  material = "N/A",
+                  color = "N/A"
                }
+               
+               -- Accès sécurisé aux propriétés
+               pcall(function() mapTarget.name = obj.Name end)
+               pcall(function() mapTarget.class = obj.ClassName end)
+               pcall(function() mapTarget.path = obj:GetFullName() end)
+               
+               if obj:IsA("BasePart") then
+                  pcall(function() mapTarget.position = tostring(obj.Position) end)
+                  pcall(function() mapTarget.size = tostring(obj.Size) end)
+                  pcall(function() mapTarget.material = tostring(obj.Material) end)
+                  pcall(function() mapTarget.color = tostring(obj.BrickColor) end)
+               end
+               
                table.insert(mapObjects, mapTarget)
                
                DebugLog("🗺️ MAP OBJECT:")
                DebugLog("  📝 Name: " .. mapTarget.name)
                DebugLog("  🏷️ Class: " .. mapTarget.class)
                DebugLog("  🔗 Path: " .. mapTarget.path)
-               DebugLog("  📍 Position: " .. tostring(mapTarget.position))
-               DebugLog("  📏 Size: " .. tostring(mapTarget.size))
+               DebugLog("  📍 Position: " .. mapTarget.position)
+               DebugLog("  📏 Size: " .. mapTarget.size)
                DebugLog("  🎨 Material: " .. mapTarget.material)
                DebugLog("  🌈 Color: " .. mapTarget.color)
                DebugLog("---")
@@ -1387,6 +1463,33 @@ local DebugWebhookButton = ESPTab:CreateButton({
          DebugLog("🧪 Test webhook forcé...")
          local success = SendDiscordWebhook("🔧 Debug Test", "Test depuis bouton debug", 16776960)
          DebugLog("Résultat: " .. (success and "✅ Succès" or "❌ Échec"))
+      end
+   end,
+})
+
+local HttpRequestsTestButton = ESPTab:CreateButton({
+   Name = "🌐 Test HttpRequests",
+   Callback = function()
+      DebugLog("🌐 TEST HTTPREQUESTS:")
+      
+      local HttpService = game:GetService("HttpService")
+      local success, result = pcall(function()
+         return HttpService:GetAsync("https://httpbin.org/get")
+      end)
+      
+      if success then
+         DebugLog("✅ HttpRequests ACTIVÉ - Fonctionne parfaitement !")
+         DebugLog("📡 Response reçue: " .. tostring(result):sub(1, 100) .. "...")
+      else
+         DebugLog("❌ HttpRequests DÉSACTIVÉ !", "error")
+         DebugLog("🔧 SOLUTIONS PAR EXECUTEUR:")
+         DebugLog("  • SYNAPSE X: Options → Allow HTTP Requests → ✅")
+         DebugLog("  • KRNL: Settings → Enable HTTP Requests → ✅")
+         DebugLog("  • SCRIPT-WARE: Settings → HTTP Requests → ON")
+         DebugLog("  • FLUXUS: Settings → HTTP → Enable")
+         DebugLog("  • DELTA: Options → HTTP Requests → Enable") 
+         DebugLog("  • OXYGEN U: Settings → Allow HTTP → ✅")
+         DebugLog("📖 Erreur: " .. tostring(result))
       end
    end,
 })
