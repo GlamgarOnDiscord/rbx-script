@@ -71,15 +71,18 @@ local rootPart = character:WaitForChild("HumanoidRootPart")
 -- Envoyer un webhook Discord
 local function SendDiscordWebhook(title, description, color, fields)
     if not WebhookConfig.enabled or WebhookConfig.url == "" then
+        DebugLog("❌ Webhook non configuré", "warn")
         return
     end
     
-    pcall(function()
+    local success, result = pcall(function()
+        local HttpService = game:GetService("HttpService")
+        
         local data = {
             embeds = {{
                 title = title,
                 description = description,
-                color = color or 3447003, -- Bleu par défaut
+                color = color or 3447003,
                 fields = fields or {},
                 footer = {
                     text = "Steal Brainrot MVP • " .. player.Name,
@@ -89,7 +92,8 @@ local function SendDiscordWebhook(title, description, color, fields)
             }}
         }
         
-        local jsonData = game:GetService("HttpService"):JSONEncode(data)
+        local jsonData = HttpService:JSONEncode(data)
+        DebugLog("📡 Tentative envoi webhook: " .. title)
         
         local request = {
             Url = WebhookConfig.url,
@@ -100,16 +104,22 @@ local function SendDiscordWebhook(title, description, color, fields)
             Body = jsonData
         }
         
-        local success, response = pcall(function()
-            return game:GetService("HttpService"):RequestAsync(request)
-        end)
+        local response = HttpService:RequestAsync(request)
         
-        if success and response.Success then
-            DebugLog("📡 Webhook envoyé: " .. title)
+        if response.Success then
+            DebugLog("✅ Webhook envoyé avec succès: " .. title)
+            return true
         else
-            DebugLog("❌ Erreur webhook: " .. tostring(response), "warn")
+            DebugLog("❌ Échec webhook - Code: " .. response.StatusCode .. " | Message: " .. response.StatusMessage, "warn")
+            return false
         end
     end)
+    
+    if not success then
+        DebugLog("❌ Erreur critique webhook: " .. tostring(result), "error")
+    end
+    
+    return success
 end
 
 -- Notification d'erreur
@@ -210,24 +220,44 @@ end
 
 -- Détecter l'argent du joueur depuis l'interface
 local function DetectPlayerMoney()
+    -- Méthode 1: Chercher dans Leaderstats
+    if player:FindFirstChild("leaderstats") then
+        local leaderstats = player.leaderstats
+        for _, stat in pairs(leaderstats:GetChildren()) do
+            if stat.Name:lower():find("cash") or stat.Name:lower():find("money") or stat.Name:lower():find("coin") then
+                PlayerMoney = tonumber(stat.Value) or 0
+                DebugLog("💰 Argent détecté via leaderstats: $" .. PlayerMoney)
+                return PlayerMoney
+            end
+        end
+    end
+    
+    -- Méthode 2: Chercher dans PlayerGui
     for _, gui in pairs(player.PlayerGui:GetDescendants()) do
-        if gui:IsA("TextLabel") or gui:IsA("TextBox") then
+        if gui:IsA("TextLabel") and gui.Text then
             local text = gui.Text
-            if text:find("%$") and (text:find("T") or text:find("B") or text:find("M") or text:find("K")) then
-                local cleanText = text:gsub("[^%d%.]", "")
-                if cleanText ~= "" then
-                    local multiplier = 1
-                    if text:find("K") then multiplier = 1000
-                    elseif text:find("M") then multiplier = 1000000
-                    elseif text:find("B") then multiplier = 1000000000
-                    elseif text:find("T") then multiplier = 1000000000000
+            -- Chercher format $123 ou $123K/M/B/T
+            if text:find("%$%d") then
+                local numberStr = text:match("%$([%d%.]+[KMBT]?)")
+                if numberStr then
+                    local cleanText = numberStr:gsub("[^%d%.]", "")
+                    local number = tonumber(cleanText) or 0
+                    
+                    if numberStr:find("K") then number = number * 1000
+                    elseif numberStr:find("M") then number = number * 1000000
+                    elseif numberStr:find("B") then number = number * 1000000000
+                    elseif numberStr:find("T") then number = number * 1000000000000
                     end
-                    PlayerMoney = tonumber(cleanText) * multiplier
+                    
+                    PlayerMoney = number
+                    DebugLog("💰 Argent détecté via GUI: $" .. PlayerMoney .. " (Texte: " .. text .. ")")
                     return PlayerMoney
                 end
             end
         end
     end
+    
+    DebugLog("❌ Impossible de détecter l'argent", "warn")
     return PlayerMoney
 end
 
@@ -267,10 +297,20 @@ end
 -- Détecter si un brainrot est God ou Secret
 local function IsBrainrotGodOrSecret(brainrot)
     for _, child in pairs(brainrot:GetDescendants()) do
-        if child:IsA("TextLabel") or child:IsA("SurfaceGui") then
-            local text = child.Text or ""
+        if child:IsA("TextLabel") and child.Text then
+            local text = child.Text
             if text:find("Brainrot God") or text:find("Secret") then
                 return true, text:find("Brainrot God") and "God" or "Secret"
+            end
+        elseif child:IsA("SurfaceGui") then
+            -- Chercher dans les TextLabel des SurfaceGui
+            for _, subChild in pairs(child:GetDescendants()) do
+                if subChild:IsA("TextLabel") and subChild.Text then
+                    local text = subChild.Text
+                    if text:find("Brainrot God") or text:find("Secret") then
+                        return true, text:find("Brainrot God") and "God" or "Secret"
+                    end
+                end
             end
         end
     end
@@ -279,15 +319,38 @@ end
 
 -- Détecter le tapis rouge (position centrale)
 local function DetectRedCarpet()
+    DebugLog("🔍 Recherche du tapis rouge...")
+    
     for _, part in pairs(workspace:GetDescendants()) do
-        if part:IsA("BasePart") and (part.BrickColor == BrickColor.new("Bright red") or part.Material == Enum.Material.Carpet) then
-            if part.Size.X > 20 or part.Size.Z > 20 then -- Grand tapis
-                RedCarpetPosition = part.Position
-                DebugLog("🔴 TAPIS ROUGE DÉTECTÉ: " .. tostring(RedCarpetPosition))
-                return RedCarpetPosition
+        pcall(function()
+            if part:IsA("BasePart") then
+                local isRed = false
+                local isLarge = false
+                
+                -- Vérifier la couleur
+                if part.BrickColor and (part.BrickColor == BrickColor.new("Bright red") or part.BrickColor == BrickColor.new("Really red")) then
+                    isRed = true
+                elseif part.Material == Enum.Material.Carpet then
+                    isRed = true
+                elseif part.Name:lower():find("carpet") or part.Name:lower():find("tapis") then
+                    isRed = true
+                end
+                
+                -- Vérifier la taille
+                if part.Size and (part.Size.X > 15 or part.Size.Z > 15) then
+                    isLarge = true
+                end
+                
+                if isRed and isLarge then
+                    RedCarpetPosition = part.Position
+                    DebugLog("🔴 TAPIS ROUGE DÉTECTÉ: " .. part.Name .. " | Position: " .. tostring(RedCarpetPosition))
+                    return RedCarpetPosition
+                end
             end
-        end
+        end)
     end
+    
+    DebugLog("❌ Tapis rouge non trouvé", "warn")
     return nil
 end
 
@@ -310,46 +373,52 @@ end
 local function ScanBrainrots(notifyWebhook)
     local brainrots = {}
     
-    for _, obj in pairs(workspace:GetDescendants()) do
-        if obj:IsA("Model") or obj:IsA("Part") then
-            local isGodSecret, rarity = IsBrainrotGodOrSecret(obj)
-            if isGodSecret then
-                local info = {
-                    object = obj,
-                    rarity = rarity,
-                    position = obj:IsA("BasePart") and obj.Position or obj.PrimaryPart and obj.PrimaryPart.Position,
-                    name = obj.Name
-                }
-                
-                -- Détecter le prix si c'est sur le tapis
-                for _, child in pairs(obj:GetDescendants()) do
-                    if child:IsA("TextLabel") and child.Text:find("%$") then
-                        local priceText = child.Text:match("%$([%d%.]+[KMBT]?)")
-                        if priceText then
-                            info.price = priceText
-                            info.priceNumber = ConvertPriceToNumber(priceText)
+    pcall(function()
+        for _, obj in pairs(workspace:GetDescendants()) do
+            pcall(function()
+                if obj:IsA("Model") or obj:IsA("Part") then
+                    local isGodSecret, rarity = IsBrainrotGodOrSecret(obj)
+                    if isGodSecret then
+                        local info = {
+                            object = obj,
+                            rarity = rarity,
+                            position = obj:IsA("BasePart") and obj.Position or (obj.PrimaryPart and obj.PrimaryPart.Position),
+                            name = obj.Name
+                        }
+                        
+                        -- Détecter le prix si c'est sur le tapis
+                        for _, child in pairs(obj:GetDescendants()) do
+                            pcall(function()
+                                if child:IsA("TextLabel") and child.Text and child.Text:find("%$") then
+                                    local priceText = child.Text:match("%$([%d%.]+[KMBT]?)")
+                                    if priceText then
+                                        info.price = priceText
+                                        info.priceNumber = ConvertPriceToNumber(priceText)
+                                    end
+                                end
+                            end)
+                        end
+                        
+                        -- Vérifier si on peut se le permettre
+                        if info.priceNumber then
+                            info.canAfford = PlayerMoney >= info.priceNumber
+                        end
+                        
+                        table.insert(brainrots, info)
+                        DebugLog("🎭 BRAINROT " .. rarity .. " TROUVÉ: " .. obj.Name .. " | Prix: " .. (info.price or "N/A"))
+                        
+                        -- Notifier le webhook pour les nouveaux spawns (seulement si sur le tapis rouge)
+                        if notifyWebhook and RedCarpetPosition and info.position then
+                            local distanceFromCarpet = (info.position - RedCarpetPosition).Magnitude
+                            if distanceFromCarpet < 50 then -- Sur le tapis = nouveau spawn
+                                NotifyBrainrotSpawn(info)
+                            end
                         end
                     end
                 end
-                
-                -- Vérifier si on peut se le permettre
-                if info.priceNumber then
-                    info.canAfford = PlayerMoney >= info.priceNumber
-                end
-                
-                table.insert(brainrots, info)
-                DebugLog("🎭 BRAINROT " .. rarity .. " TROUVÉ: " .. obj.Name .. " | Prix: " .. (info.price or "N/A"))
-                
-                -- Notifier le webhook pour les nouveaux spawns (seulement si sur le tapis rouge)
-                if notifyWebhook and RedCarpetPosition and info.position then
-                    local distanceFromCarpet = (info.position - RedCarpetPosition).Magnitude
-                    if distanceFromCarpet < 50 then -- Sur le tapis = nouveau spawn
-                        NotifyBrainrotSpawn(info)
-                    end
-                end
-            end
+            end)
         end
-    end
+    end)
     
     return brainrots
 end
@@ -922,6 +991,41 @@ local TestProximityButton = DebugTab:CreateButton({
    end,
 })
 
+local DebugBrainrotsButton = DebugTab:CreateButton({
+   Name = "🎭 Debug Détection Brainrots",
+   Callback = function()
+      DebugLog("🔍 DEBUG DÉTECTION BRAINROTS:")
+      local brainrotCount = 0
+      local textLabelCount = 0
+      
+      for _, obj in pairs(workspace:GetDescendants()) do
+         if obj:IsA("Model") or obj:IsA("Part") then
+            for _, child in pairs(obj:GetDescendants()) do
+               if child:IsA("TextLabel") then
+                  textLabelCount = textLabelCount + 1
+                  if child.Text and (child.Text:find("Brainrot") or child.Text:find("God") or child.Text:find("Secret")) then
+                     brainrotCount = brainrotCount + 1
+                     DebugLog("🎭 BRAINROT POTENTIEL: " .. obj.Name .. " | Texte: " .. child.Text)
+                  end
+               elseif child:IsA("SurfaceGui") then
+                  for _, subChild in pairs(child:GetDescendants()) do
+                     if subChild:IsA("TextLabel") then
+                        textLabelCount = textLabelCount + 1
+                        if subChild.Text and (subChild.Text:find("Brainrot") or subChild.Text:find("God") or subChild.Text:find("Secret")) then
+                           brainrotCount = brainrotCount + 1
+                           DebugLog("🎭 BRAINROT SURFACEGUI: " .. obj.Name .. " | Texte: " .. subChild.Text)
+                        end
+                     end
+                  end
+               end
+            end
+         end
+      end
+      
+      DebugLog("📊 RÉSULTATS: " .. textLabelCount .. " TextLabels, " .. brainrotCount .. " brainrots détectés")
+   end,
+})
+
 -- Section Credits MVP
 local CreditsSection = DebugTab:CreateSection("📝 Crédits MVP")
 local CreditsLabel = DebugTab:CreateLabel("Steal Brainrot MVP v1.0 - Webhook Edition")
@@ -1014,6 +1118,32 @@ local MoneyCheckButton = ESPTab:CreateButton({
    Callback = function()
       DetectPlayerMoney()
       DebugLog("💰 ARGENT DÉTECTÉ: $" .. tostring(PlayerMoney))
+      
+      -- Debug supplémentaire pour l'argent
+      if player:FindFirstChild("leaderstats") then
+         DebugLog("📊 Leaderstats trouvé:")
+         for _, stat in pairs(player.leaderstats:GetChildren()) do
+            DebugLog("  - " .. stat.Name .. ": " .. tostring(stat.Value))
+         end
+      else
+         DebugLog("❌ Aucun leaderstats trouvé")
+      end
+   end,
+})
+
+local DebugWebhookButton = ESPTab:CreateButton({
+   Name = "🔧 Debug Webhook Détaillé",
+   Callback = function()
+      DebugLog("🔍 DEBUG WEBHOOK:")
+      DebugLog("  URL configuré: " .. (WebhookConfig.url ~= "" and "✅ Oui" or "❌ Non"))
+      DebugLog("  Webhook activé: " .. (WebhookConfig.enabled and "✅ Oui" or "❌ Non"))
+      DebugLog("  HttpService disponible: " .. (game:GetService("HttpService") and "✅ Oui" or "❌ Non"))
+      
+      if WebhookConfig.url ~= "" and WebhookConfig.enabled then
+         DebugLog("🧪 Test webhook forcé...")
+         local success = SendDiscordWebhook("🔧 Debug Test", "Test depuis bouton debug", 16776960)
+         DebugLog("Résultat: " .. (success and "✅ Succès" or "❌ Échec"))
+      end
    end,
 })
 
