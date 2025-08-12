@@ -601,18 +601,27 @@ local function ScanBrainrots(notifyWebhook)
                     local rarity = "Unknown"
                     local price = "N/A"
                     local priceNumber = 0
+                    local hasRarityLabel = false
+                    local hasPriceLabel = false
                     
-                    -- Méthode 1: Identifier par noms typiques de brainrots
-                    local brainrotKeywords = {
-                        "pizzanini", "troppi", "sahur", "noobini", "tung", "brainrot",
-                        "skibidi", "sigma", "ohio", "gyatt", "rizz", "mewing", "chad"
-                    }
+                    -- NOUVELLE MÉTHODE: Détection stricte par structure brainrot
+                    -- Un vrai brainrot DOIT avoir à la fois un nom spécifique ET des labels de rareté/prix
                     
                     local nameLower = obj.Name:lower()
-                    for _, keyword in pairs(brainrotKeywords) do
-                        if nameLower:find(keyword) then
-                            isBrainrot = true
-                            DebugLog("🎭 Brainrot détecté par nom: " .. obj.Name)
+                    
+                    -- Noms EXACTS de brainrots connus (plus restrictif)
+                    local knownBrainrots = {
+                        "noobini pizzanini", "pizzanini", "noobini",
+                        "trippi troppi", "troppi", "trippi", 
+                        "tung tung tung sahur", "sahur", "tung",
+                        "sigma", "ohio", "skibidi", "gyatt", "rizz"
+                    }
+                    
+                    local nameMatches = false
+                    for _, knownName in pairs(knownBrainrots) do
+                        if nameLower == knownName or nameLower:find(knownName) then
+                            nameMatches = true
+                            DebugLog("🎯 Nom brainrot reconnu: " .. obj.Name .. " (pattern: " .. knownName .. ")")
                             break
                         end
                     end
@@ -638,48 +647,71 @@ local function ScanBrainrots(notifyWebhook)
                                 end
                                 
                                 if not isOnBoard then
-                                    -- Détection rareté spécifique
+                                    -- NOUVEAU: Scrapping précis de la rareté 
                                     if text:find("Brainrot God") then
-                                        isBrainrot = true
                                         rarity = "God"
-                                        DebugLog("🌟 BRAINROT GOD confirmé: " .. obj.Name)
+                                        hasRarityLabel = true
+                                        DebugLog("🌟 RARETÉ God détectée: " .. obj.Name)
                                     elseif text:find("Secret") and not text:find("Codes") and not text:find("Main") then
-                                        isBrainrot = true
                                         rarity = "Secret"
-                                        DebugLog("🔮 BRAINROT SECRET confirmé: " .. obj.Name)
-                                    elseif text:find("Common") then
+                                        hasRarityLabel = true
+                                        DebugLog("🔮 RARETÉ Secret détectée: " .. obj.Name)
+                                    elseif text == "Common" then
                                         rarity = "Common"
-                                    elseif text:find("Rare") then
+                                        hasRarityLabel = true
+                                        DebugLog("⚪ RARETÉ Common détectée: " .. obj.Name)
+                                    elseif text == "Rare" then
                                         rarity = "Rare"
-                                    elseif text:find("Epic") then
+                                        hasRarityLabel = true
+                                        DebugLog("🔵 RARETÉ Rare détectée: " .. obj.Name)
+                                    elseif text == "Epic" then
                                         rarity = "Epic"
-                                    elseif text:find("Legendary") then
+                                        hasRarityLabel = true
+                                        DebugLog("🟣 RARETÉ Epic détectée: " .. obj.Name)
+                                    elseif text == "Legendary" then
                                         rarity = "Legendary"
-                                    elseif text:find("Mythique") then
+                                        hasRarityLabel = true
+                                        DebugLog("🟠 RARETÉ Legendary détectée: " .. obj.Name)
+                                    elseif text == "Mythique" or text == "Mythical" then
                                         rarity = "Mythique"
+                                        hasRarityLabel = true
+                                        DebugLog("🔴 RARETÉ Mythique détectée: " .. obj.Name)
                                     end
                                     
-                                    -- Détection prix améliorée (comme dans l'image $25)
-                                    if text:find("%$%d") and not text:find("/s") and not text:find("MULTI") then
+                                    -- Détection prix stricte (prix d'achat, pas revenu)
+                                    if text:find("%$%d") and not text:find("/s") and not text:find("MULTI") and not text:find("x") then
                                         local extractedPrice = text:match("%$([%d%.]+[KMBT]?)")
                                         if extractedPrice then
                                             price = "$" .. extractedPrice
                                             priceNumber = ConvertPriceToNumber(extractedPrice)
-                                            DebugLog("💰 Prix détecté: " .. price .. " pour " .. obj.Name)
+                                            hasPriceLabel = true
+                                            DebugLog("💰 PRIX détecté: " .. price .. " pour " .. obj.Name)
                                         end
                                     end
                                     
-                                    -- Si contient "brainrot" dans le texte, c'est sûrement un brainrot
-                                    if text:lower():find("brainrot") then
-                                        isBrainrot = true
+                                    -- Détection revenu (pour confirmation structure brainrot)
+                                    if text:find("%$/s") or text:find("%$ /s") then
+                                        DebugLog("💸 REVENU détecté: " .. text .. " pour " .. obj.Name)
+                                        -- Les brainrots ont un revenu, c'est bon signe
                                     end
                                 end
                             end
                         end)
                     end
                     
-                    -- Ajouter seulement les brainrots God/Secret ou ceux avec prix détecté
-                    if isBrainrot and (rarity == "God" or rarity == "Secret" or priceNumber > 0) then
+                    -- LOGIQUE STRICTE: Un brainrot DOIT avoir nom reconnu + (rareté OU prix)
+                    isBrainrot = nameMatches and (hasRarityLabel or hasPriceLabel)
+                    
+                    if isBrainrot then
+                        DebugLog("✅ BRAINROT VALIDÉ: " .. obj.Name .. " | Rareté: " .. rarity .. " | Prix: " .. price)
+                    else
+                        if nameMatches and not hasRarityLabel and not hasPriceLabel then
+                            DebugLog("⚠️ Nom brainrot trouvé mais pas de rareté/prix: " .. obj.Name)
+                        end
+                    end
+                    
+                    -- Ajouter seulement les vrais brainrots (priorité God/Secret pour auto-buy)
+                    if isBrainrot and (rarity == "God" or rarity == "Secret" or rarity == "Legendary" or rarity == "Mythique" or priceNumber > 100) then
                         -- Obtenir position du Model
                         local position = nil
                         if obj.PrimaryPart then
@@ -1579,6 +1611,128 @@ local FullDebugButton = DebugTab:CreateButton({
       DebugLog("🛒 Proximity Prompts trouvés: " .. #promptTargets)
       DebugLog("🗺️ Map Objects trouvés: " .. #mapObjects)
       DebugLog("=== 🎯 FULL DEBUG ANALYSIS END ===")
+   end,
+})
+
+local StrictBrainrotTestButton = DebugTab:CreateButton({
+   Name = "🎯 Test Détection Stricte",
+   Callback = function()
+      DebugLog("🎯 TEST DÉTECTION BRAINROT STRICTE:")
+      
+      local candidates = {}
+      local validBrainrots = {}
+      
+      for _, obj in pairs(workspace:GetChildren()) do
+         pcall(function()
+            if obj:IsA("Model") and obj.Name ~= "Camera" and obj.Name ~= "Terrain" and not obj:IsA("Player") then
+               
+               local nameLower = obj.Name:lower()
+               
+               -- Test nom brainrot
+               local knownBrainrots = {
+                  "noobini pizzanini", "pizzanini", "noobini",
+                  "trippi troppi", "troppi", "trippi", 
+                  "tung tung tung sahur", "sahur", "tung",
+                  "sigma", "ohio", "skibidi", "gyatt", "rizz"
+               }
+               
+               local nameMatches = false
+               local matchedPattern = ""
+               for _, knownName in pairs(knownBrainrots) do
+                  if nameLower == knownName or nameLower:find(knownName) then
+                     nameMatches = true
+                     matchedPattern = knownName
+                     break
+                  end
+               end
+               
+               if nameMatches then
+                  local hasRarityLabel = false
+                  local hasPriceLabel = false
+                  local rarity = "Unknown"
+                  local price = "N/A"
+                  local allTexts = {}
+                  
+                  -- Analyser TextLabels
+                  for _, child in pairs(obj:GetDescendants()) do
+                     pcall(function()
+                        if child:IsA("TextLabel") and child.Text and child.Text ~= "" then
+                           table.insert(allTexts, child.Text)
+                           
+                           local text = child.Text
+                           
+                           -- Test rareté
+                           if text:find("Brainrot God") then
+                              rarity = "God"
+                              hasRarityLabel = true
+                           elseif text:find("Secret") and not text:find("Codes") then
+                              rarity = "Secret"
+                              hasRarityLabel = true
+                           elseif text == "Common" or text == "Rare" or text == "Epic" or text == "Legendary" or text == "Mythique" then
+                              rarity = text
+                              hasRarityLabel = true
+                           end
+                           
+                           -- Test prix
+                           if text:find("%$%d") and not text:find("/s") and not text:find("MULTI") then
+                              local extractedPrice = text:match("%$([%d%.]+[KMBT]?)")
+                              if extractedPrice then
+                                 price = "$" .. extractedPrice
+                                 hasPriceLabel = true
+                              end
+                           end
+                        end
+                     end)
+                  end
+                  
+                  local candidate = {
+                     name = obj.Name,
+                     nameMatches = nameMatches,
+                     matchedPattern = matchedPattern,
+                     hasRarityLabel = hasRarityLabel,
+                     hasPriceLabel = hasPriceLabel,
+                     rarity = rarity,
+                     price = price,
+                     allTexts = allTexts,
+                     isValid = nameMatches and (hasRarityLabel or hasPriceLabel)
+                  }
+                  
+                  table.insert(candidates, candidate)
+                  
+                  if candidate.isValid then
+                     table.insert(validBrainrots, candidate)
+                  end
+               end
+            end
+         end)
+      end
+      
+      DebugLog("📊 RÉSULTATS TEST STRICT:")
+      DebugLog("  🎯 Candidats nom brainrot: " .. #candidates)
+      DebugLog("  ✅ Brainrots valides: " .. #validBrainrots)
+      DebugLog("")
+      
+      DebugLog("🎭 BRAINROTS VALIDES:")
+      for i, brainrot in pairs(validBrainrots) do
+         DebugLog("✅ " .. i .. ". " .. brainrot.name)
+         DebugLog("  🏷️ Pattern: " .. brainrot.matchedPattern)
+         DebugLog("  🎨 Rareté: " .. brainrot.rarity .. " (" .. (brainrot.hasRarityLabel and "✅" or "❌") .. ")")
+         DebugLog("  💰 Prix: " .. brainrot.price .. " (" .. (brainrot.hasPriceLabel and "✅" or "❌") .. ")")
+         DebugLog("  📝 Textes: " .. table.concat(brainrot.allTexts, " | "))
+         DebugLog("---")
+      end
+      
+      DebugLog("⚠️ CANDIDATS REJETÉS:")
+      for i, candidate in pairs(candidates) do
+         if not candidate.isValid then
+            DebugLog("❌ " .. candidate.name)
+            DebugLog("  🏷️ Pattern: " .. candidate.matchedPattern)
+            DebugLog("  🎨 Rareté: " .. (candidate.hasRarityLabel and "✅" or "❌"))
+            DebugLog("  💰 Prix: " .. (candidate.hasPriceLabel and "✅" or "❌"))
+            DebugLog("  📝 Textes: " .. table.concat(candidate.allTexts, " | "))
+            DebugLog("---")
+         end
+      end
    end,
 })
 
