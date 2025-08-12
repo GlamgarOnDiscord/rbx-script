@@ -439,52 +439,213 @@ end
 
 -- Détecter la base du joueur
 local function DetectPlayerBase()
-    -- Chercher des objets avec le nom du joueur ou des bases
-    for _, obj in pairs(workspace:GetDescendants()) do
-        if obj.Name:find(player.Name) or obj.Name:find("Base") then
-            if obj:IsA("BasePart") then
-                PlayerBasePosition = obj.Position
-                DebugLog("🏠 BASE JOUEUR DÉTECTÉE: " .. tostring(PlayerBasePosition))
+    DebugLog("🔍 Recherche de la base du joueur...")
+    
+    local playerName = player.Name
+    local bases = {}
+    
+    -- Méthode 1: Chercher dans workspace les bases/plots
+    for _, obj in pairs(workspace:GetChildren()) do
+        pcall(function()
+            if obj:IsA("Model") then
+                local objName = obj.Name:lower()
+                
+                -- Patterns pour identifier les bases
+                if objName:find("base") or objName:find("plot") or objName:find("tycoon") or 
+                   objName:find(playerName:lower()) or objName:find("spawn") then
+                    
+                    local position = nil
+                    if obj.PrimaryPart then
+                        position = obj.PrimaryPart.Position
+                    else
+                        pcall(function()
+                            local pivot = obj:GetPivot()
+                            if pivot then
+                                position = pivot.Position
+                            end
+                        end)
+                    end
+                    
+                    if position then
+                        table.insert(bases, {obj = obj, position = position, name = obj.Name})
+                        DebugLog("🏠 Base candidate: " .. obj.Name .. " à " .. tostring(position))
+                    end
+                end
+            end
+        end)
+    end
+    
+    -- Méthode 2: Chercher les zones vertes/tapis de collecte proches  
+    if character and rootPart then
+        local playerPos = rootPart.Position
+        
+        for _, obj in pairs(workspace:GetDescendants()) do
+            pcall(function()
+                if obj:IsA("BasePart") then
+                    local material = tostring(obj.Material)
+                    local color = tostring(obj.BrickColor)
+                    local name = obj.Name:lower()
+                    
+                    -- Identifier les tapis/zones de collecte (verts dans l'image)
+                    if (color:find("Green") or material:find("Grass") or 
+                        name:find("collect") or name:find("money") or name:find("cash")) and
+                       (playerPos - obj.Position).Magnitude < 100 then
+                        
+                        table.insert(bases, {
+                            obj = obj, 
+                            position = obj.Position, 
+                            name = "Zone collecte - " .. obj.Name,
+                            type = "collecte"
+                        })
+                        DebugLog("💚 Zone collecte détectée: " .. obj.Name .. " à " .. tostring(obj.Position))
+                    end
+                end
+            end)
+        end
+    end
+    
+    -- Sélectionner la meilleure base
+    if #bases > 0 then
+        -- Prioriser les bases avec le nom du joueur
+        for _, base in pairs(bases) do
+            if base.name:lower():find(playerName:lower()) then
+                PlayerBasePosition = base.position
+                DebugLog("✅ Base joueur trouvée (nom): " .. base.name .. " à " .. tostring(PlayerBasePosition))
+                return PlayerBasePosition
+            end
+        end
+        
+        -- Sinon prendre la plus proche
+        if character and rootPart then
+            local playerPos = rootPart.Position
+            local closestBase = nil
+            local closestDistance = math.huge
+            
+            for _, base in pairs(bases) do
+                local distance = (playerPos - base.position).Magnitude
+                if distance < closestDistance then
+                    closestDistance = distance
+                    closestBase = base
+                end
+            end
+            
+            if closestBase then
+                PlayerBasePosition = closestBase.position
+                DebugLog("✅ Base la plus proche: " .. closestBase.name .. " à " .. tostring(PlayerBasePosition))
                 return PlayerBasePosition
             end
         end
     end
+    
+    -- Méthode 3: Position spawn comme fallback
+    if character and rootPart then
+        PlayerBasePosition = rootPart.Position
+        DebugLog("🏠 Base par défaut (position actuelle): " .. tostring(PlayerBasePosition))
+        return PlayerBasePosition
+    end
+    
+    DebugLog("❌ Base joueur non trouvée", "warn")
     return nil
 end
 
--- Scanner tous les brainrots God/Secret
+-- Scanner tous les brainrots dans Workspace 
 local function ScanBrainrots(notifyWebhook)
     local brainrots = {}
     
+    DebugLog("🔍 Scan brainrots dans Workspace...")
+    
     pcall(function()
-        for _, obj in pairs(workspace:GetDescendants()) do
+        -- NOUVEAU: Scanner directement workspace:GetChildren() pour les Models principaux
+        for _, obj in pairs(workspace:GetChildren()) do
             pcall(function()
-                if obj:IsA("Model") or obj:IsA("Part") then
-                    local isGodSecret, rarity = IsBrainrotGodOrSecret(obj)
-                    if isGodSecret then
-                        -- CORRECTION: Meilleure détection position pour Models
-                        local position = nil
-                        if obj:IsA("BasePart") then
-                            position = obj.Position
-                        elseif obj:IsA("Model") then
-                            if obj.PrimaryPart then
-                                position = obj.PrimaryPart.Position
-                            else
-                                -- Essayer GetPivot() pour les nouveaux Models
-                                local success, pivotResult = pcall(function()
-                                    return obj:GetPivot().Position
-                                end)
-                                if success then
-                                    position = pivotResult
-                                else
-                                    -- Fallback: centre approximatif via BoundingBox  
-                                    local cfSuccess, cframe, size = pcall(function()
-                                        return obj:GetBoundingBox()
-                                    end)
-                                    if cfSuccess then
-                                        position = cframe.Position
+                if obj:IsA("Model") and obj.Name ~= "Camera" and obj.Name ~= "Terrain" and not obj:IsA("Player") then
+                    
+                    local isBrainrot = false
+                    local rarity = "Unknown"
+                    local price = "N/A"
+                    local priceNumber = 0
+                    
+                    -- Méthode 1: Identifier par noms typiques de brainrots
+                    local brainrotKeywords = {
+                        "pizzanini", "troppi", "sahur", "noobini", "tung", "brainrot",
+                        "skibidi", "sigma", "ohio", "gyatt", "rizz", "mewing", "chad"
+                    }
+                    
+                    local nameLower = obj.Name:lower()
+                    for _, keyword in pairs(brainrotKeywords) do
+                        if nameLower:find(keyword) then
+                            isBrainrot = true
+                            DebugLog("🎭 Brainrot détecté par nom: " .. obj.Name)
+                            break
+                        end
+                    end
+                    
+                    -- Méthode 2: Analyser TextLabels pour rareté et prix
+                    for _, child in pairs(obj:GetDescendants()) do
+                        pcall(function()
+                            if child:IsA("TextLabel") and child.Text then
+                                local text = child.Text
+                                
+                                -- Détection rareté spécifique
+                                if text:find("Brainrot God") then
+                                    isBrainrot = true
+                                    rarity = "God"
+                                    DebugLog("🌟 BRAINROT GOD confirmé: " .. obj.Name)
+                                elseif text:find("Secret") and not text:find("Codes") and not text:find("Main") then
+                                    isBrainrot = true
+                                    rarity = "Secret"
+                                    DebugLog("🔮 BRAINROT SECRET confirmé: " .. obj.Name)
+                                elseif text:find("Common") then
+                                    rarity = "Common"
+                                elseif text:find("Rare") then
+                                    rarity = "Rare"
+                                elseif text:find("Epic") then
+                                    rarity = "Epic"
+                                elseif text:find("Legendary") then
+                                    rarity = "Legendary"
+                                elseif text:find("Mythique") then
+                                    rarity = "Mythique"
+                                end
+                                
+                                -- Détection prix améliorée (comme dans l'image $25)
+                                if text:find("%$%d") and not text:find("/s") and not text:find("MULTI") then
+                                    local extractedPrice = text:match("%$([%d%.]+[KMBT]?)")
+                                    if extractedPrice then
+                                        price = "$" .. extractedPrice
+                                        priceNumber = ConvertPriceToNumber(extractedPrice)
+                                        DebugLog("💰 Prix détecté: " .. price .. " pour " .. obj.Name)
                                     end
                                 end
+                                
+                                -- Si contient "brainrot" dans le texte, c'est sûrement un brainrot
+                                if text:lower():find("brainrot") then
+                                    isBrainrot = true
+                                end
+                            end
+                        end)
+                    end
+                    
+                    -- Ajouter seulement les brainrots God/Secret ou ceux avec prix détecté
+                    if isBrainrot and (rarity == "God" or rarity == "Secret" or priceNumber > 0) then
+                        -- Obtenir position du Model
+                        local position = nil
+                        if obj.PrimaryPart then
+                            position = obj.PrimaryPart.Position
+                        else
+                            pcall(function()
+                                local pivot = obj:GetPivot()
+                                if pivot then
+                                    position = pivot.Position
+                                end
+                            end)
+                            
+                            if not position then
+                                pcall(function()
+                                    local cframe, size = obj:GetBoundingBox()
+                                    if cframe then
+                                        position = cframe.Position
+                                    end
+                                end)
                             end
                         end
 
@@ -492,33 +653,18 @@ local function ScanBrainrots(notifyWebhook)
                             object = obj,
                             rarity = rarity,
                             position = position,
-                            name = obj.Name
+                            name = obj.Name,
+                            price = price,
+                            priceNumber = priceNumber,
+                            canAfford = PlayerMoney >= priceNumber
                         }
                         
-                        -- Détecter le prix si c'est sur le tapis
-                        for _, child in pairs(obj:GetDescendants()) do
-                            pcall(function()
-                                if child:IsA("TextLabel") and child.Text and child.Text:find("%$") then
-                                    local priceText = child.Text:match("%$([%d%.]+[KMBT]?)")
-                                    if priceText then
-                                        info.price = priceText
-                                        info.priceNumber = ConvertPriceToNumber(priceText)
-                                    end
-                                end
-                            end)
-                        end
-                        
-                        -- Vérifier si on peut se le permettre
-                        if info.priceNumber then
-                            info.canAfford = PlayerMoney >= info.priceNumber
-                        end
-                        
                         table.insert(brainrots, info)
-                        DebugLog("🎭 BRAINROT " .. rarity .. " TROUVÉ: " .. obj.Name .. " | Prix: " .. (info.price or "N/A"))
+                        DebugLog("✅ BRAINROT AJOUTÉ: " .. obj.Name .. " | Rareté: " .. rarity .. " | Prix: " .. price)
                         
-                        -- Notifier le webhook pour les nouveaux spawns (seulement si sur le tapis rouge)
-                        if notifyWebhook and RedCarpetPosition and info.position then
-                            local distanceFromCarpet = (info.position - RedCarpetPosition).Magnitude
+                        -- Notifier webhook pour nouveaux spawns sur tapis rouge
+                        if notifyWebhook and RedCarpetPosition and position and (rarity == "God" or rarity == "Secret") then
+                            local distanceFromCarpet = (position - RedCarpetPosition).Magnitude
                             if distanceFromCarpet < 50 then -- Sur le tapis = nouveau spawn
                                 NotifyBrainrotSpawn(info)
                             end
@@ -529,6 +675,7 @@ local function ScanBrainrots(notifyWebhook)
         end
     end)
     
+    DebugLog("🎭 Total brainrots trouvés: " .. #brainrots)
     return brainrots
 end
 
@@ -1382,6 +1529,100 @@ local FullDebugButton = DebugTab:CreateButton({
    end,
 })
 
+local WorkspaceModelsButton = DebugTab:CreateButton({
+   Name = "🎭 Debug Workspace Models",
+   Callback = function()
+      DebugLog("🎭 ANALYSE WORKSPACE MODELS (BRAINROTS):")
+      
+      local models = {}
+      for _, obj in pairs(workspace:GetChildren()) do
+         pcall(function()
+            if obj:IsA("Model") and obj.Name ~= "Camera" and obj.Name ~= "Terrain" and not obj:IsA("Player") then
+               local modelInfo = {
+                  name = obj.Name,
+                  class = obj.ClassName,
+                  path = obj:GetFullName(),
+                  position = "N/A",
+                  texts = {},
+                  isBrainrot = false
+               }
+               
+               -- Position du Model
+               pcall(function()
+                  if obj.PrimaryPart then
+                     modelInfo.position = tostring(obj.PrimaryPart.Position)
+                  else
+                     local pivot = obj:GetPivot()
+                     if pivot then
+                        modelInfo.position = tostring(pivot.Position)
+                     end
+                  end
+               end)
+               
+               -- Chercher tous les textes dans le Model
+               for _, child in pairs(obj:GetDescendants()) do
+                  pcall(function()
+                     if child:IsA("TextLabel") and child.Text and child.Text ~= "" then
+                        table.insert(modelInfo.texts, child.Text)
+                        
+                        -- Identifier si c'est un brainrot
+                        local text = child.Text:lower()
+                        if text:find("brainrot") or text:find("common") or text:find("rare") or 
+                           text:find("epic") or text:find("legendary") or text:find("mythique") or
+                           text:find("god") or text:find("secret") or text:find("%$/s") then
+                           modelInfo.isBrainrot = true
+                        end
+                     end
+                  end)
+               end
+               
+               table.insert(models, modelInfo)
+            end
+         end)
+      end
+      
+      -- Trier: brainrots d'abord
+      table.sort(models, function(a, b) 
+         if a.isBrainrot and not b.isBrainrot then return true
+         elseif not a.isBrainrot and b.isBrainrot then return false
+         else return a.name < b.name end
+      end)
+      
+      DebugLog("🗺️ TOTAL MODELS WORKSPACE: " .. #models)
+      DebugLog("🎭 BRAINROTS DÉTECTÉS:")
+      
+      local brainrotCount = 0
+      for i, model in pairs(models) do
+         if model.isBrainrot then
+            brainrotCount = brainrotCount + 1
+            DebugLog("🎭 BRAINROT " .. brainrotCount .. ":")
+            DebugLog("  📝 Nom: " .. model.name)
+            DebugLog("  🔗 Path: " .. model.path) 
+            DebugLog("  📍 Position: " .. model.position)
+            DebugLog("  💬 Textes: " .. table.concat(model.texts, " | "))
+            DebugLog("---")
+         end
+      end
+      
+      DebugLog("📊 AUTRES MODELS:")
+      local otherCount = 0
+      for i, model in pairs(models) do
+         if not model.isBrainrot then
+            otherCount = otherCount + 1
+            if otherCount <= 10 then -- Limiter l'affichage
+               DebugLog("📦 " .. model.name .. " (" .. model.class .. ") - " .. model.position)
+            end
+         end
+      end
+      
+      if otherCount > 10 then
+         DebugLog("... et " .. (otherCount - 10) .. " autres models")
+      end
+      
+      DebugLog("🎯 RÉSUMÉ: " .. brainrotCount .. " brainrots sur " .. #models .. " models")
+   end,
+})
+
 local FalsePositivesButton = DebugTab:CreateButton({
    Name = "🚨 Debug Faux Positifs",
    Callback = function()
@@ -1620,6 +1861,60 @@ local HttpRequestsTestButton = ESPTab:CreateButton({
          DebugLog("  • DELTA: Options → HTTP Requests → Enable") 
          DebugLog("  • OXYGEN U: Settings → Allow HTTP → ✅")
          DebugLog("📖 Erreur: " .. tostring(result))
+      end
+   end,
+})
+
+local SimpleWebhookTestButton = ESPTab:CreateButton({
+   Name = "📡 Test Webhook Simple",
+   Callback = function()
+      if WebhookConfig.url == "" then
+         DebugLog("❌ URL webhook non configuré", "error")
+         return
+      end
+      
+      DebugLog("📡 TEST WEBHOOK SIMPLE:")
+      
+      local success, result = pcall(function()
+         local HttpService = game:GetService("HttpService")
+         
+         -- Format simple pour test
+         local data = {
+            content = "🧪 **Test Webhook MVP** \n" ..
+                     "👤 Joueur: " .. player.Name .. "\n" ..
+                     "🕒 Heure: " .. os.date("%H:%M:%S") .. "\n" ..
+                     "✅ Script fonctionnel!"
+         }
+         
+         local request = {
+            Url = WebhookConfig.url,
+            Method = "POST",
+            Headers = {["Content-Type"] = "application/json"},
+            Body = HttpService:JSONEncode(data)
+         }
+         
+         DebugLog("🔄 Envoi requête simple...")
+         local response = HttpService:RequestAsync(request)
+         
+         DebugLog("📥 Response: " .. response.StatusCode .. " " .. response.StatusMessage)
+         
+         if response.Success and (response.StatusCode == 204 or response.StatusCode == 200) then
+            DebugLog("✅ WEBHOOK SIMPLE RÉUSSI !")
+            return true
+         else
+            DebugLog("❌ Webhook simple échoué: " .. response.StatusCode)
+            if response.Body then
+               DebugLog("📄 Error: " .. tostring(response.Body):sub(1, 200))
+            end
+            return false
+         end
+      end)
+      
+      if not success then
+         DebugLog("❌ Erreur test webhook: " .. tostring(result), "error")
+         if tostring(result):find("[Hh]ttp") then
+            DebugLog("💡 HttpRequests probablement désactivé", "warn")
+         end
       end
    end,
 })
