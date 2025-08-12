@@ -21,15 +21,11 @@ local Window = Rayfield:CreateWindow({
    KeySystem = false
 })
 
--- Variables de contrôle
+-- Variables de contrôle MVP
 local AutoBuy = false
-local AutoSteal = false
-local AutoCollect = false
-local AutoFarm = false
-local WalkSpeed = 16
+local WalkSpeed = 30
 local JumpPower = 50
 local DebugMode = true
-local ObjectExplorer = false
 
 -- Variables MVP Steal Brainrot
 local ESPEnabled = false
@@ -536,104 +532,7 @@ local function FindItemByName(name, searchIn)
     return nil
 end
 
--- Fonction pour auto-collect items
-local function AutoCollectItems()
-    DebugLog("🚜 AUTO COLLECT DÉMARRÉ")
-    local collectCount = 0
-    
-    while AutoCollect do
-        local itemsFound = 0
-        local itemsCollected = 0
-        
-        for _, item in pairs(workspace:GetDescendants()) do
-            if item.Name:find("Coin") or item.Name:find("Cash") or item.Name:find("Money") or item.Name:find("Brainrot") or item.Name:find("Dollar") then
-                itemsFound = itemsFound + 1
-                DebugLog("💰 ITEM TROUVÉ: " .. item.Name .. " | Type: " .. item.ClassName .. " | Parent: " .. item.Parent.Name)
-                
-                local part = item:FindFirstChild("Handle") or item:FindFirstChild("Part") or item
-                if part and part:IsA("BasePart") then
-                    local distance = (rootPart.Position - part.Position).Magnitude
-                    DebugLog("  📍 Distance: " .. math.floor(distance) .. " studs")
-                    
-                    if distance < 50 then
-                        DebugLog("  ✅ TÉLÉPORTATION vers: " .. tostring(part.Position))
-                        SafeTeleport(part.Position)
-                        itemsCollected = itemsCollected + 1
-                        collectCount = collectCount + 1
-                        wait(0.1)
-                    else
-                        DebugLog("  ❌ Trop loin (" .. math.floor(distance) .. " > 50)")
-                    end
-                else
-                    DebugLog("  ❌ Pas de partie collectible trouvée", "warn")
-                end
-            end
-        end
-        
-        DebugLog("📊 BILAN COLLECT: " .. itemsFound .. " trouvés, " .. itemsCollected .. " collectés (Total: " .. collectCount .. ")")
-        wait(0.5)
-    end
-    
-    DebugLog("🛑 AUTO COLLECT ARRÊTÉ")
-end
-
--- Fonction pour auto-steal
-local function AutoStealFunction()
-    DebugLog("💰 AUTO STEAL DÉMARRÉ")
-    local stealAttempts = 0
-    
-    while AutoSteal do
-        local playersFound = 0
-        local stealTargets = 0
-        
-        DebugLog("🔍 Recherche de cibles à voler...")
-        
-        for _, otherPlayer in pairs(Players:GetPlayers()) do
-            if otherPlayer ~= player and otherPlayer.Character then
-                playersFound = playersFound + 1
-                local otherRoot = otherPlayer.Character:FindFirstChild("HumanoidRootPart")
-                
-                if otherRoot then
-                    local distance = (rootPart.Position - otherRoot.Position).Magnitude
-                    DebugLog("👤 JOUEUR: " .. otherPlayer.Name .. " | Distance: " .. math.floor(distance) .. " studs")
-                    
-                    if distance < 20 then
-                        stealTargets = stealTargets + 1
-                        DebugLog("  🎯 CIBLE VALIDE: " .. otherPlayer.Name .. " (Distance: " .. math.floor(distance) .. ")")
-                        
-                        -- Chercher les RemoteEvents de vol
-                        local stealEvents = {}
-                        for _, remote in pairs(ReplicatedStorage:GetDescendants()) do
-                            if remote:IsA("RemoteEvent") and (remote.Name:find("Steal") or remote.Name:find("Rob") or remote.Name:find("Take")) then
-                                table.insert(stealEvents, remote)
-                                DebugLog("    📡 EVENT TROUVÉ: " .. remote.Name)
-                            end
-                        end
-                        
-                        if #stealEvents > 0 then
-                            for _, stealEvent in pairs(stealEvents) do
-                                DebugLog("    🔥 TENTATIVE DE VOL via: " .. stealEvent.Name)
-                                stealEvent:FireServer(otherPlayer)
-                                stealAttempts = stealAttempts + 1
-                            end
-                        else
-                            DebugLog("    ❌ Aucun RemoteEvent de vol trouvé", "warn")
-                        end
-                    else
-                        DebugLog("  ❌ Trop loin: " .. otherPlayer.Name .. " (" .. math.floor(distance) .. " > 20)")
-                    end
-                else
-                    DebugLog("  ❌ Pas de HumanoidRootPart: " .. otherPlayer.Name, "warn")
-                end
-            end
-        end
-        
-        DebugLog("📊 BILAN STEAL: " .. playersFound .. " joueurs, " .. stealTargets .. " cibles, " .. stealAttempts .. " tentatives totales")
-        wait(1)
-    end
-    
-    DebugLog("🛑 AUTO STEAL ARRÊTÉ")
-end
+-- Fonctions MVP supprimées pour garder seulement l'essentiel
 
 -- Convertir prix texte en nombre
 local function ConvertPriceToNumber(priceText)
@@ -769,40 +668,102 @@ local function AutoBuyBrainrots()
     DebugLog("🛑 AUTO BUY BRAINROTS ARRÊTÉ")
 end
 
+-- 📡 ONGLET WEBHOOK DISCORD (2ème position pour visibilité)
+local WebhookTab = Window:CreateTab("📡 Discord", 4483362458)
+
+local WebhookConfigSection = WebhookTab:CreateSection("⚙️ Configuration Webhook")
+
+local WebhookInput = WebhookTab:CreateInput({
+   Name = "🔗 URL Webhook Discord",
+   PlaceholderText = "https://discord.com/api/webhooks/...",
+   RemoveTextAfterFocusLost = false,
+   Flag = "WebhookURL",
+   Callback = function(Text)
+      WebhookConfig.url = Text
+      if Text ~= "" then
+         DebugLog("📡 Webhook URL configuré")
+      end
+   end,
+})
+
+local WebhookEnabledToggle = WebhookTab:CreateToggle({
+   Name = "📡 Activer Webhook",
+   CurrentValue = false,
+   Flag = "WebhookEnabled",
+   Callback = function(Value)
+      WebhookConfig.enabled = Value
+      if Value and WebhookConfig.url == "" then
+         DebugLog("⚠️ URL Webhook non configuré !", "warn")
+         WebhookConfig.enabled = false
+      else
+         DebugLog("📡 Webhook " .. (Value and "ACTIVÉ" or "DÉSACTIVÉ"))
+      end
+   end,
+})
+
+local WebhookNotificationSection = WebhookTab:CreateSection("🔔 Types de Notifications")
+
+local ErrorNotifToggle = WebhookTab:CreateToggle({
+   Name = "🚨 Notifications d'Erreurs",
+   CurrentValue = true,
+   Flag = "WebhookErrors",
+   Callback = function(Value)
+      WebhookConfig.sendErrors = Value
+      DebugLog("🚨 Notifications erreurs: " .. (Value and "ON" or "OFF"))
+   end,
+})
+
+local SpawnNotifToggle = WebhookTab:CreateToggle({
+   Name = "🎭 Spawn Brainrots God/Secret",
+   CurrentValue = true,
+   Flag = "WebhookSpawn",
+   Callback = function(Value)
+      WebhookConfig.sendBrainrotSpawn = Value
+      DebugLog("🎭 Notifications spawn: " .. (Value and "ON" or "OFF"))
+   end,
+})
+
+local BuyNotifToggle = WebhookTab:CreateToggle({
+   Name = "🛒 Résultats Auto Buy",
+   CurrentValue = true,
+   Flag = "WebhookBuy",
+   Callback = function(Value)
+      WebhookConfig.sendAutoBuy = Value
+      DebugLog("🛒 Notifications achat: " .. (Value and "ON" or "OFF"))
+   end,
+})
+
+local TestWebhookButton = WebhookTab:CreateButton({
+   Name = "🧪 Tester Webhook",
+   Callback = function()
+      if WebhookConfig.url == "" then
+         DebugLog("❌ Configure d'abord l'URL du webhook !", "warn")
+         return
+      end
+      
+      SendDiscordWebhook(
+         "🧪 Test Webhook",
+         "Test de connexion réussi !",
+         3066993, -- Vert
+         {
+            {name = "Joueur", value = player.Name, inline = true},
+            {name = "Status", value = "✅ Fonctionnel", inline = true}
+         }
+      )
+      DebugLog("🧪 Test webhook envoyé")
+   end,
+})
+
+local WebhookInfoSection = WebhookTab:CreateSection("📖 Instructions")
+local InfoLabel1 = WebhookTab:CreateLabel("1. Discord → Serveur → Paramètres → Intégrations")
+local InfoLabel2 = WebhookTab:CreateLabel("2. Webhooks → Nouveau → Copier URL")
+local InfoLabel3 = WebhookTab:CreateLabel("3. Coller URL ci-dessus → Activer → Tester")
+
 -- Onglet Principal
 local MainTab = Window:CreateTab("🏠 Principal", 4483362458)
 
--- Section Auto Farm
-local AutoSection = MainTab:CreateSection("🤖 Automatisation")
-
-local AutoFarmToggle = MainTab:CreateToggle({
-   Name = "🚜 Auto Farm",
-   CurrentValue = false,
-   Flag = "AutoFarm",
-   Callback = function(Value)
-      AutoFarm = Value
-      if Value then
-         spawn(function()
-            while AutoFarm do
-               AutoCollectItems()
-               wait(1)
-            end
-         end)
-      end
-   end,
-})
-
-local AutoStealToggle = MainTab:CreateToggle({
-   Name = "💰 Auto Steal",
-   CurrentValue = false,
-   Flag = "AutoSteal",
-   Callback = function(Value)
-      AutoSteal = Value
-      if Value then
-         spawn(AutoStealFunction)
-      end
-   end,
-})
+-- Section MVP Auto Buy
+local AutoSection = MainTab:CreateSection("🛒 Auto Buy MVP")
 
 local AutoBuyToggle = MainTab:CreateToggle({
    Name = "🛒 Auto Buy God/Secret",
@@ -819,18 +780,6 @@ local AutoBuyToggle = MainTab:CreateToggle({
          spawn(AutoBuyBrainrots)
       else
          DebugLog("🛑 AUTO BUY DÉSACTIVÉ")
-      end
-   end,
-})
-
-local AutoCollectToggle = MainTab:CreateToggle({
-   Name = "💎 Auto Collect",
-   CurrentValue = false,
-   Flag = "AutoCollect",
-   Callback = function(Value)
-      AutoCollect = Value
-      if Value then
-         spawn(AutoCollectItems)
       end
    end,
 })
@@ -871,68 +820,6 @@ local JumpPowerSlider = MainTab:CreateSlider({
       end
    end,
 })
-
--- Onglet Téléportation
-local TeleportTab = Window:CreateTab("🌐 Téléportation", 4483362458)
-
-local TeleportSection = TeleportTab:CreateSection("📍 Lieux importants")
-
-local SpawnButton = TeleportTab:CreateButton({
-   Name = "🏠 Spawn",
-   Callback = function()
-      SafeTeleport(Vector3.new(0, 10, 0))
-   end,
-})
-
-local ShopButton = TeleportTab:CreateButton({
-   Name = "🛒 Shop",
-   Callback = function()
-      local shop = FindItemByName("shop")
-      if shop then
-         SafeTeleport(shop.Position + Vector3.new(0, 5, 0))
-      end
-   end,
-})
-
--- Onglet Utilitaires
-local UtilsTab = Window:CreateTab("🔧 Utilitaires", 4483362458)
-
-local UtilsSection = UtilsTab:CreateSection("⚙️ Outils")
-
-local NoClipToggle = UtilsTab:CreateToggle({
-   Name = "👻 NoClip",
-   CurrentValue = false,
-   Flag = "NoClip",
-   Callback = function(Value)
-      for _, part in pairs(character:GetDescendants()) do
-         if part:IsA("BasePart") then
-            part.CanCollide = not Value
-         end
-      end
-   end,
-})
-
-local InfiniteJumpToggle = UtilsTab:CreateToggle({
-   Name = "🚀 Saut infini",
-   CurrentValue = false,
-   Flag = "InfiniteJump",
-   Callback = function(Value)
-      if Value then
-         UserInputService.JumpRequest:Connect(function()
-            if character and humanoid then
-               humanoid:ChangeState("Jumping")
-            end
-         end)
-      end
-   end,
-})
-
--- Section Credits
-local CreditsSection = UtilsTab:CreateSection("📝 Crédits")
-
-local CreditsLabel = UtilsTab:CreateLabel("Créé avec Rayfield UI")
-local VersionLabel = UtilsTab:CreateLabel("Version 1.0 - Github")
-local AuthorLabel = UtilsTab:CreateLabel("by GlamgarOnDiscord")
 
 -- 🔍 ONGLET DEBUG
 local DebugTab = Window:CreateTab("🔍 Debug", 4483362458)
@@ -1035,111 +922,13 @@ local TestProximityButton = DebugTab:CreateButton({
    end,
 })
 
--- 📡 ONGLET WEBHOOK
-local WebhookTab = Window:CreateTab("📡 Discord", 4483362458)
+-- Section Credits MVP
+local CreditsSection = DebugTab:CreateSection("📝 Crédits MVP")
+local CreditsLabel = DebugTab:CreateLabel("Steal Brainrot MVP v1.0 - Webhook Edition")
+local AuthorLabel = DebugTab:CreateLabel("by GlamgarOnDiscord")
+local GitHubLabel = DebugTab:CreateLabel("GitHub: rbx-script")
 
-local WebhookConfigSection = WebhookTab:CreateSection("⚙️ Configuration Webhook")
-
-local WebhookInput = WebhookTab:CreateInput({
-   Name = "🔗 URL Webhook Discord",
-   PlaceholderText = "https://discord.com/api/webhooks/...",
-   RemoveTextAfterFocusLost = false,
-   Flag = "WebhookURL",
-   Callback = function(Text)
-      WebhookConfig.url = Text
-      if Text ~= "" then
-         DebugLog("📡 Webhook URL configuré")
-      end
-   end,
-})
-
-local WebhookEnabledToggle = WebhookTab:CreateToggle({
-   Name = "📡 Activer Webhook",
-   CurrentValue = false,
-   Flag = "WebhookEnabled",
-   Callback = function(Value)
-      WebhookConfig.enabled = Value
-      if Value and WebhookConfig.url == "" then
-         DebugLog("⚠️ URL Webhook non configuré !", "warn")
-         WebhookConfig.enabled = false
-      else
-         DebugLog("📡 Webhook " .. (Value and "ACTIVÉ" or "DÉSACTIVÉ"))
-      end
-   end,
-})
-
-local WebhookNotificationSection = WebhookTab:CreateSection("🔔 Types de Notifications")
-
-local ErrorNotifToggle = WebhookTab:CreateToggle({
-   Name = "🚨 Notifications d'Erreurs",
-   CurrentValue = true,
-   Flag = "WebhookErrors",
-   Callback = function(Value)
-      WebhookConfig.sendErrors = Value
-      DebugLog("🚨 Notifications erreurs: " .. (Value and "ON" or "OFF"))
-   end,
-})
-
-local SpawnNotifToggle = WebhookTab:CreateToggle({
-   Name = "🎭 Spawn Brainrots God/Secret",
-   CurrentValue = true,
-   Flag = "WebhookSpawn",
-   Callback = function(Value)
-      WebhookConfig.sendBrainrotSpawn = Value
-      DebugLog("🎭 Notifications spawn: " .. (Value and "ON" or "OFF"))
-   end,
-})
-
-local BuyNotifToggle = WebhookTab:CreateToggle({
-   Name = "🛒 Résultats Auto Buy",
-   CurrentValue = true,
-   Flag = "WebhookBuy",
-   Callback = function(Value)
-      WebhookConfig.sendAutoBuy = Value
-      DebugLog("🛒 Notifications achat: " .. (Value and "ON" or "OFF"))
-   end,
-})
-
-local PlayerJoinToggle = WebhookTab:CreateToggle({
-   Name = "👤 Joueurs qui rejoignent",
-   CurrentValue = false,
-   Flag = "WebhookPlayerJoin",
-   Callback = function(Value)
-      WebhookConfig.sendPlayerJoin = Value
-      DebugLog("👤 Notifications joueurs: " .. (Value and "ON" or "OFF"))
-   end,
-})
-
-local WebhookTestSection = WebhookTab:CreateSection("🧪 Test Webhook")
-
-local TestWebhookButton = WebhookTab:CreateButton({
-   Name = "🧪 Tester Webhook",
-   Callback = function()
-      if WebhookConfig.url == "" then
-         DebugLog("❌ Configure d'abord l'URL du webhook !", "warn")
-         return
-      end
-      
-      SendDiscordWebhook(
-         "🧪 Test Webhook",
-         "Test de connexion réussi !",
-         3066993, -- Vert
-         {
-            {name = "Joueur", value = player.Name, inline = true},
-            {name = "Serveur", value = game.JobId, inline = true},
-            {name = "Status", value = "✅ Fonctionnel", inline = true}
-         }
-      )
-      DebugLog("🧪 Test webhook envoyé")
-   end,
-})
-
-local WebhookInfoSection = WebhookTab:CreateSection("📖 Instructions")
-
-local InfoLabel1 = WebhookTab:CreateLabel("1. Va sur Discord → Serveur → Paramètres")
-local InfoLabel2 = WebhookTab:CreateLabel("2. Intégrations → Webhooks → Nouveau")
-local InfoLabel3 = WebhookTab:CreateLabel("3. Copie l'URL et colle-la ci-dessus")
-local InfoLabel4 = WebhookTab:CreateLabel("4. Active le webhook et teste la connexion")
+-- Doublon webhook supprimé
 
 -- 👁️ ONGLET ESP
 local ESPTab = Window:CreateTab("👁️ ESP", 4483362458)
@@ -1282,16 +1071,16 @@ end)
 -- Notifications
 Rayfield:Notify({
    Title = "🪐 Steal Brainrot MVP",
-   Content = "Auto Buy God/Secret + ESP activés !",
+   Content = "🛒 Auto Buy + 📡 Discord + 👁️ ESP",
    Duration = 5,
    Image = 4483362458,
 })
 
-DebugLog("✅ MVP STEAL BRAINROT CHARGÉ AVEC SUCCÈS !")
-DebugLog("🎯 FONCTIONNALITÉS: Auto Buy God/Secret, ESP Brainrots/Players, Webhook Discord")
-DebugLog("📖 Instructions: Ouvre F9 pour voir tous les logs de debug")
-DebugLog("🔍 Onglets: Principal (Auto Buy), ESP (Visualisation), Discord (Webhooks), Debug (Tests)")
-DebugLog("⚡ PRÊT À UTILISER - Active Auto Buy pour commencer !")
+DebugLog("✅ MVP STEAL BRAINROT CHARGÉ - WEBHOOK EDITION !")
+DebugLog("🎯 FONCTIONNALITÉS MVP: Auto Buy God/Secret, ESP, Webhook Discord")
+DebugLog("📡 CONFIGURE WEBHOOK: Onglet Discord → Coller URL → Activer")
+DebugLog("🛒 AUTO BUY: Onglet Principal → Activer Auto Buy")
+DebugLog("⚡ PRÊT À UTILISER - MVP optimisé !")
 
 -- Notification webhook de démarrage
 spawn(function()
