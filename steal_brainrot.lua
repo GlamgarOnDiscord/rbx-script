@@ -40,6 +40,354 @@ local Window = Rayfield:CreateWindow({
 })
 
 local DebugTab = Window:CreateTab("🔍 Debug", nil)
+local ESPTab = Window:CreateTab("👁️ ESP", nil)
+local AutoBuyTab = Window:CreateTab("🛒 Auto Buy", nil)
+
+-- Variables globales
+local ESPEnabled = false
+local AutoBuyEnabled = false
+local SelectedRarities = {}
+local espBoxes = {}
+local detectedBrainrots = {}
+
+-- Fonction pour créer ESP Box
+local function CreateESPBox(obj, text, color)
+    pcall(function()
+        -- Supprimer ancien ESP s'il existe
+        RemoveESPBox(obj)
+        
+        local gui = Instance.new("BillboardGui")
+        gui.Name = "ESP_" .. obj.Name
+        gui.Adornee = obj
+        gui.Size = UDim2.new(0, 200, 0, 100)
+        gui.StudsOffset = Vector3.new(0, 2, 0)
+        gui.AlwaysOnTop = true
+        gui.LightInfluence = 0
+        
+        -- Cadre principal
+        local frame = Instance.new("Frame")
+        frame.Size = UDim2.new(1, 0, 1, 0)
+        frame.BackgroundTransparency = 0.7
+        frame.BackgroundColor3 = color
+        frame.BorderSizePixel = 2
+        frame.BorderColor3 = color
+        frame.Parent = gui
+        
+        -- Texte
+        local label = Instance.new("TextLabel")
+        label.Size = UDim2.new(1, 0, 1, 0)
+        label.BackgroundTransparency = 1
+        label.Text = text
+        label.TextColor3 = Color3.new(1, 1, 1)
+        label.TextScaled = true
+        label.TextStrokeTransparency = 0
+        label.TextStrokeColor3 = Color3.new(0, 0, 0)
+        label.Font = Enum.Font.GothamBold
+        label.Parent = frame
+        
+        gui.Parent = game.CoreGui
+        espBoxes[obj] = gui
+    end)
+end
+
+-- Fonction pour supprimer ESP Box
+local function RemoveESPBox(obj)
+    pcall(function()
+        if espBoxes[obj] then
+            espBoxes[obj]:Destroy()
+            espBoxes[obj] = nil
+        end
+    end)
+end
+
+-- Fonction pour analyser les 6 textes d'un brainrot
+local function ParseBrainrotTexts(texts)
+    local brainrot = {
+        mutation = "None",
+        rarity = "Unknown", 
+        revenue = "N/A",
+        price = "N/A",
+        priceNumber = 0,
+        stolen = false,
+        name = "Unknown"
+    }
+    
+    for _, text in pairs(texts) do
+        local textLower = text:lower()
+        
+        -- 1. Mutations (Gold, Diamond, Rainbow, etc.)
+        if text:find("Gold") or text:find("Diamond") or text:find("Rainbow") or 
+           text:find("Lava") or text:find("Celestial") or text:find("Bloodrot") then
+            brainrot.mutation = text
+            
+        -- 2. Rareté
+        elseif text == "Common" or text == "Rare" or text == "Epic" or 
+               text == "Legendary" or text == "Mythic" or text:find("God") or text:find("Secret") then
+            brainrot.rarity = text
+            
+        -- 3. Revenu généré ($/s)
+        elseif text:find("$/s") or text:find("$%d+/s") then
+            brainrot.revenue = text
+            
+        -- 4. Prix d'achat ($1K, $500, etc.)
+        elseif text:find("$") and (text:find("K") or text:find("M") or text:find("B") or text:match("$%d+")) and not text:find("/s") then
+            brainrot.price = text
+            -- Convertir en nombre
+            local numberStr = text:match("(%d+)")
+            if numberStr then
+                local num = tonumber(numberStr) or 0
+                if text:find("K") then num = num * 1000
+                elseif text:find("M") then num = num * 1000000
+                elseif text:find("B") then num = num * 1000000000 end
+                brainrot.priceNumber = num
+            end
+            
+        -- 5. STOLEN
+        elseif textLower:find("stolen") then
+            brainrot.stolen = true
+            
+        -- 6. Nom (tout ce qui ne match pas les autres catégories)
+        elseif text ~= "" and not text:find("$") and not text:find("/s") and 
+               not (text == "Common" or text == "Rare" or text == "Epic" or text == "Legendary" or text == "Mythic") then
+            brainrot.name = text
+        end
+    end
+    
+    return brainrot
+end
+
+-- Fonction pour détecter tous les brainrots
+local function DetectAllBrainrots()
+    detectedBrainrots = {}
+    
+    -- Chercher le tapis
+    local carpet = nil
+    local map = workspace:FindFirstChild("Map")
+    if map then carpet = map:FindFirstChild("Carpet") end
+    
+    if not carpet then
+        DebugLog("❌ Tapis non trouvé pour ESP", "warn")
+        return {}
+    end
+    
+    local carpetPos = carpet.Position
+    
+    -- Scanner models sur le tapis
+    for _, obj in pairs(workspace:GetDescendants()) do
+        pcall(function()
+            if obj:IsA("Model") and obj ~= carpet then
+                local modelPos = nil
+                if obj.PrimaryPart then
+                    modelPos = obj.PrimaryPart.Position
+                else
+                    pcall(function()
+                        local pivot = obj:GetPivot()
+                        if pivot then modelPos = pivot.Position end
+                    end)
+                end
+                
+                if modelPos and (modelPos - carpetPos).Magnitude < 100 then
+                    -- Collecter tous les textes
+                    local texts = {}
+                    for _, child in pairs(obj:GetDescendants()) do
+                        if child:IsA("TextLabel") and child.Text ~= "" then
+                            table.insert(texts, child.Text)
+                        end
+                    end
+                    
+                    -- Si 6 textes trouvés, c'est probablement un brainrot
+                    if #texts >= 5 then -- Au moins 5 textes pour être sûr
+                        local brainrotData = ParseBrainrotTexts(texts)
+                        brainrotData.object = obj
+                        brainrotData.position = modelPos
+                        brainrotData.allTexts = texts
+                        
+                        table.insert(detectedBrainrots, brainrotData)
+                        
+                        DebugLog("🎯 Brainrot détecté: " .. brainrotData.name .. " | " .. brainrotData.rarity .. " | " .. brainrotData.price)
+                    end
+                end
+            end
+        end)
+    end
+    
+    DebugLog("📊 Total brainrots détectés: " .. #detectedBrainrots)
+    return detectedBrainrots
+end
+
+-- Fonction pour mettre à jour l'ESP
+local function UpdateESP()
+    if not ESPEnabled then return end
+    
+    -- Nettoyer ancien ESP
+    for obj, gui in pairs(espBoxes) do
+        RemoveESPBox(obj)
+    end
+    
+    -- Détecter brainrots
+    local brainrots = DetectAllBrainrots()
+    
+    -- Créer ESP pour chaque brainrot
+    for _, brainrot in pairs(brainrots) do
+        local espText = brainrot.rarity .. " - " .. brainrot.name
+        if brainrot.price ~= "N/A" then
+            espText = espText .. "\n💰 " .. brainrot.price
+        end
+        if brainrot.mutation ~= "None" then
+            espText = espText .. "\n✨ " .. brainrot.mutation
+        end
+        if brainrot.stolen then
+            espText = espText .. "\n🚨 STOLEN"
+        end
+        
+        -- Couleur selon rareté
+        local color = Color3.fromRGB(200, 200, 200) -- Gris par défaut
+        if brainrot.rarity:find("God") then
+            color = Color3.fromRGB(255, 215, 0) -- Or
+        elseif brainrot.rarity:find("Secret") then
+            color = Color3.fromRGB(255, 255, 255) -- Blanc
+        elseif brainrot.rarity == "Legendary" then
+            color = Color3.fromRGB(255, 140, 0) -- Orange
+        elseif brainrot.rarity == "Mythic" then
+            color = Color3.fromRGB(255, 0, 0) -- Rouge
+        elseif brainrot.rarity == "Epic" then
+            color = Color3.fromRGB(128, 0, 255) -- Violet
+        elseif brainrot.rarity == "Rare" then
+            color = Color3.fromRGB(0, 100, 255) -- Bleu
+        elseif brainrot.rarity == "Common" then
+            color = Color3.fromRGB(255, 255, 255) -- Blanc
+        end
+        
+        CreateESPBox(brainrot.object, espText, color)
+    end
+    
+    DebugLog("✅ ESP mis à jour: " .. #brainrots .. " brainrots affichés")
+end
+
+-- Fonction Auto Buy
+local function AutoBuyBrainrots()
+    if not AutoBuyEnabled then return end
+    
+    local brainrots = DetectAllBrainrots()
+    local targetBrainrots = {}
+    
+    -- Filtrer selon les raretés sélectionnées
+    for _, brainrot in pairs(brainrots) do
+        for rarity, selected in pairs(SelectedRarities) do
+            if selected and brainrot.rarity:find(rarity) then
+                table.insert(targetBrainrots, brainrot)
+                break
+            end
+        end
+    end
+    
+    -- Trier par priorité (God > Secret > Legendary > Mythic > Epic > Rare > Common)
+    local rarityPriority = {
+        ["God"] = 7,
+        ["Secret"] = 6,
+        ["Legendary"] = 5,
+        ["Mythic"] = 4,
+        ["Epic"] = 3,
+        ["Rare"] = 2,
+        ["Common"] = 1
+    }
+    
+    table.sort(targetBrainrots, function(a, b)
+        local priorityA = 0
+        local priorityB = 0
+        
+        for rarity, priority in pairs(rarityPriority) do
+            if a.rarity:find(rarity) then priorityA = priority end
+            if b.rarity:find(rarity) then priorityB = priority end
+        end
+        
+        return priorityA > priorityB
+    end)
+    
+    -- Acheter le premier brainrot disponible
+    for _, brainrot in pairs(targetBrainrots) do
+        if not brainrot.stolen then -- Ne pas acheter si déjà volé
+            DebugLog("🛒 Tentative d'achat: " .. brainrot.name .. " (" .. brainrot.rarity .. ") - " .. brainrot.price)
+            
+            -- Se téléporter au brainrot
+            if player.Character and player.Character:FindFirstChild("HumanoidRootPart") then
+                player.Character.HumanoidRootPart.CFrame = CFrame.new(brainrot.position + Vector3.new(0, 5, 0))
+                wait(0.5)
+                
+                -- Simuler appui sur E
+                local VirtualInputManager = game:GetService("VirtualInputManager")
+                VirtualInputManager:SendKeyEvent(true, Enum.KeyCode.E, false, game)
+                wait(0.1)
+                VirtualInputManager:SendKeyEvent(false, Enum.KeyCode.E, false, game)
+                
+                DebugLog("✅ Achat tenté pour " .. brainrot.name)
+                break -- Acheter seulement un à la fois
+            end
+        end
+    end
+end
+
+-- === ONGLETS ===
+
+-- ESP Tab
+local ESPToggle = ESPTab:CreateToggle({
+   Name = "👁️ ESP Brainrots",
+   CurrentValue = false,
+   Callback = function(Value)
+      ESPEnabled = Value
+      if Value then
+         DebugLog("👁️ ESP ACTIVÉ")
+         spawn(function()
+            while ESPEnabled do
+               UpdateESP()
+               wait(3) -- Mise à jour toutes les 3 secondes
+            end
+         end)
+      else
+         DebugLog("👁️ ESP DÉSACTIVÉ")
+         -- Nettoyer tous les ESP
+         for obj, gui in pairs(espBoxes) do
+            RemoveESPBox(obj)
+         end
+      end
+   end,
+})
+
+-- Auto Buy Tab
+local RaritySection = AutoBuyTab:CreateSection("🎯 Sélection des Raretés")
+
+-- Toggles pour chaque rareté
+local rarities = {"God", "Secret", "Legendary", "Mythic", "Epic", "Rare", "Common"}
+
+for _, rarity in pairs(rarities) do
+    local toggle = AutoBuyTab:CreateToggle({
+        Name = rarity,
+        CurrentValue = false,
+        Callback = function(Value)
+            SelectedRarities[rarity] = Value
+            DebugLog("🎯 " .. rarity .. ": " .. (Value and "ACTIVÉ" or "DÉSACTIVÉ"))
+        end,
+    })
+end
+
+local AutoBuyToggle = AutoBuyTab:CreateToggle({
+   Name = "🛒 Auto Buy",
+   CurrentValue = false,
+   Callback = function(Value)
+      AutoBuyEnabled = Value
+      if Value then
+         DebugLog("🛒 AUTO BUY ACTIVÉ")
+         spawn(function()
+            while AutoBuyEnabled do
+               AutoBuyBrainrots()
+               wait(5) -- Vérifier toutes les 5 secondes
+            end
+         end)
+      else
+         DebugLog("🛒 AUTO BUY DÉSACTIVÉ")
+      end
+   end,
+})
 
 -- === BOUTONS DEBUG ===
 
