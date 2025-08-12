@@ -225,7 +225,8 @@ local function DebugLog(message, level)
         warn(prefix .. ": " .. tostring(message))
     elseif level == "error" then
         prefix = "❌ ERROR"
-        error(prefix .. ": " .. tostring(message))
+        -- CORRECTION: print au lieu d'error pour éviter crash callback
+        print(prefix .. ": " .. tostring(message))
     else
         print(prefix .. ": " .. tostring(message))
     end
@@ -258,45 +259,80 @@ end
 
 -- Détecter l'argent du joueur depuis l'interface
 local function DetectPlayerMoney()
-    -- Méthode 1: Chercher dans Leaderstats
+    DebugLog("🔍 Recherche argent joueur...")
+    
+    -- Méthode 1: Chercher dans Leaderstats (priorité)
     if player:FindFirstChild("leaderstats") then
         local leaderstats = player.leaderstats
+        DebugLog("📊 Leaderstats trouvé, scan...")
         for _, stat in pairs(leaderstats:GetChildren()) do
-            if stat.Name:lower():find("cash") or stat.Name:lower():find("money") or stat.Name:lower():find("coin") then
+            local statName = stat.Name:lower()
+            DebugLog("  📝 Stat: " .. stat.Name .. " = " .. tostring(stat.Value))
+            if statName:find("cash") or statName:find("money") or statName:find("coin") or statName:find("dollar") then
                 PlayerMoney = tonumber(stat.Value) or 0
-                DebugLog("💰 Argent détecté via leaderstats: $" .. PlayerMoney)
+                DebugLog("✅ Argent détecté via leaderstats: $" .. PlayerMoney .. " (source: " .. stat.Name .. ")")
                 return PlayerMoney
             end
         end
+        DebugLog("⚠️ Leaderstats présent mais pas d'argent reconnu")
+    else
+        DebugLog("❌ Aucun leaderstats trouvé")
     end
     
-    -- Méthode 2: Chercher dans PlayerGui
+    -- Méthode 2: Chercher dans PlayerGui (fallback)
+    DebugLog("🔍 Scan PlayerGui pour argent...")
+    local guiMoney = {}
     for _, gui in pairs(player.PlayerGui:GetDescendants()) do
-        if gui:IsA("TextLabel") and gui.Text then
-            local text = gui.Text
-            -- Chercher format $123 ou $123K/M/B/T
-            if text:find("%$%d") then
-                local numberStr = text:match("%$([%d%.]+[KMBT]?)")
-                if numberStr then
-                    local cleanText = numberStr:gsub("[^%d%.]", "")
-                    local number = tonumber(cleanText) or 0
+        pcall(function()
+            if gui:IsA("TextLabel") and gui.Text then
+                local text = gui.Text
+                -- CORRECTION: Patterns plus larges pour détecter argent
+                if text:find("%$") or text:lower():find("cash") or text:lower():find("money") then
+                    DebugLog("💳 GUI text trouvé: '" .. text .. "' | Path: " .. gui:GetFullName())
                     
-                    if numberStr:find("K") then number = number * 1000
-                    elseif numberStr:find("M") then number = number * 1000000
-                    elseif numberStr:find("B") then number = number * 1000000000
-                    elseif numberStr:find("T") then number = number * 1000000000000
+                    -- Format $123 ou $123K/M/B/T
+                    if text:find("%$%d") then
+                        local numberStr = text:match("%$([%d%.]+[KMBT]?)")
+                        if numberStr then
+                            local cleanText = numberStr:gsub("[^%d%.]", "")
+                            local number = tonumber(cleanText) or 0
+                            
+                            if numberStr:find("K") then number = number * 1000
+                            elseif numberStr:find("M") then number = number * 1000000
+                            elseif numberStr:find("B") then number = number * 1000000000
+                            elseif numberStr:find("T") then number = number * 1000000000000
+                            end
+                            
+                            table.insert(guiMoney, {amount = number, text = text, path = gui:GetFullName()})
+                        end
+                    else
+                        -- Format simple nombre
+                        local numberInText = text:match("%d+")
+                        if numberInText then
+                            local amount = tonumber(numberInText) or 0
+                            table.insert(guiMoney, {amount = amount, text = text, path = gui:GetFullName()})
+                        end
                     end
-                    
-                    PlayerMoney = number
-                    DebugLog("💰 Argent détecté via GUI: $" .. PlayerMoney .. " (Texte: " .. text .. ")")
-                    return PlayerMoney
                 end
             end
-        end
+        end)
     end
     
-    DebugLog("❌ Impossible de détecter l'argent", "warn")
-    return PlayerMoney
+    -- Prendre le plus grand montant trouvé dans GUI
+    if #guiMoney > 0 then
+        table.sort(guiMoney, function(a, b) return a.amount > b.amount end)
+        PlayerMoney = guiMoney[1].amount
+        DebugLog("✅ Argent détecté via GUI: $" .. PlayerMoney .. " (source: '" .. guiMoney[1].text .. "')")
+        DebugLog("📊 Autres montants trouvés: " .. #guiMoney)
+        for i = 1, math.min(3, #guiMoney) do
+            DebugLog("  " .. i .. ". $" .. guiMoney[i].amount .. " - '" .. guiMoney[i].text .. "'")
+        end
+        return PlayerMoney
+    end
+    
+    DebugLog("❌ Impossible de détecter l'argent du joueur", "error")
+    PlayerMoney = 0
+    return 0
 end
 
 -- Créer ESP pour un objet
@@ -337,16 +373,25 @@ local function IsBrainrotGodOrSecret(brainrot)
     for _, child in pairs(brainrot:GetDescendants()) do
         if child:IsA("TextLabel") and child.Text then
             local text = child.Text
-            if text:find("Brainrot God") or text:find("Secret") then
-                return true, text:find("Brainrot God") and "God" or "Secret"
+            -- CORRECTION: Plus spécifique pour éviter faux positifs
+            if text:find("Brainrot God") then
+                DebugLog("✅ Brainrot God détecté: '" .. text .. "' sur " .. brainrot.Name)
+                return true, "God"
+            elseif text:find("Secret") and not text:find("Codes") and not text:find("Main") and brainrot.Name ~= "Codes" and brainrot.Name ~= "Main" then
+                DebugLog("✅ Brainrot Secret détecté: '" .. text .. "' sur " .. brainrot.Name)
+                return true, "Secret"
             end
         elseif child:IsA("SurfaceGui") then
             -- Chercher dans les TextLabel des SurfaceGui
             for _, subChild in pairs(child:GetDescendants()) do
                 if subChild:IsA("TextLabel") and subChild.Text then
                     local text = subChild.Text
-                    if text:find("Brainrot God") or text:find("Secret") then
-                        return true, text:find("Brainrot God") and "God" or "Secret"
+                    if text:find("Brainrot God") then
+                        DebugLog("✅ Brainrot God détecté: '" .. text .. "' sur " .. brainrot.Name)
+                        return true, "God"
+                    elseif text:find("Secret") and not text:find("Codes") and not text:find("Main") and brainrot.Name ~= "Codes" and brainrot.Name ~= "Main" then
+                        DebugLog("✅ Brainrot Secret détecté: '" .. text .. "' sur " .. brainrot.Name)
+                        return true, "Secret"
                     end
                 end
             end
@@ -417,10 +462,36 @@ local function ScanBrainrots(notifyWebhook)
                 if obj:IsA("Model") or obj:IsA("Part") then
                     local isGodSecret, rarity = IsBrainrotGodOrSecret(obj)
                     if isGodSecret then
+                        -- CORRECTION: Meilleure détection position pour Models
+                        local position = nil
+                        if obj:IsA("BasePart") then
+                            position = obj.Position
+                        elseif obj:IsA("Model") then
+                            if obj.PrimaryPart then
+                                position = obj.PrimaryPart.Position
+                            else
+                                -- Essayer GetPivot() pour les nouveaux Models
+                                local success, pivotResult = pcall(function()
+                                    return obj:GetPivot().Position
+                                end)
+                                if success then
+                                    position = pivotResult
+                                else
+                                    -- Fallback: centre approximatif via BoundingBox  
+                                    local cfSuccess, cframe, size = pcall(function()
+                                        return obj:GetBoundingBox()
+                                    end)
+                                    if cfSuccess then
+                                        position = cframe.Position
+                                    end
+                                end
+                            end
+                        end
+
                         local info = {
                             object = obj,
                             rarity = rarity,
-                            position = obj:IsA("BasePart") and obj.Position or (obj.PrimaryPart and obj.PrimaryPart.Position),
+                            position = position,
                             name = obj.Name
                         }
                         
@@ -1271,6 +1342,18 @@ local FullDebugButton = DebugTab:CreateButton({
                   pcall(function() mapTarget.size = tostring(obj.Size) end)
                   pcall(function() mapTarget.material = tostring(obj.Material) end)
                   pcall(function() mapTarget.color = tostring(obj.BrickColor) end)
+               elseif obj:IsA("Model") then
+                  -- CORRECTION: Position pour Models
+                  pcall(function() 
+                     if obj.PrimaryPart then
+                        mapTarget.position = tostring(obj.PrimaryPart.Position)
+                     else
+                        local pivot = obj:GetPivot()
+                        if pivot then
+                           mapTarget.position = tostring(pivot.Position)
+                        end
+                     end
+                  end)
                end
                
                table.insert(mapObjects, mapTarget)
@@ -1296,6 +1379,53 @@ local FullDebugButton = DebugTab:CreateButton({
       DebugLog("🛒 Proximity Prompts trouvés: " .. #promptTargets)
       DebugLog("🗺️ Map Objects trouvés: " .. #mapObjects)
       DebugLog("=== 🎯 FULL DEBUG ANALYSIS END ===")
+   end,
+})
+
+local FalsePositivesButton = DebugTab:CreateButton({
+   Name = "🚨 Debug Faux Positifs",
+   Callback = function()
+      DebugLog("🚨 ANALYSE FAUX POSITIFS BRAINROTS:")
+      
+      local suspects = {}
+      for _, obj in pairs(workspace:GetDescendants()) do
+         pcall(function()
+            if obj:IsA("Model") or obj:IsA("Part") then
+               -- Chercher les objets suspects
+               for _, child in pairs(obj:GetDescendants()) do
+                  pcall(function()
+                     if child:IsA("TextLabel") and child.Text then
+                        local text = child.Text
+                        if text:find("Secret") or text:find("God") or text:find("Codes") or text:find("Main") then
+                           table.insert(suspects, {
+                              objectName = obj.Name,
+                              objectClass = obj.ClassName,
+                              objectPath = obj:GetFullName(),
+                              labelText = text,
+                              labelPath = child:GetFullName()
+                           })
+                        end
+                     end
+                  end)
+               end
+            end
+         end)
+      end
+      
+      DebugLog("🔍 OBJETS SUSPECTS TROUVÉS: " .. #suspects)
+      for i, suspect in pairs(suspects) do
+         DebugLog("🚨 SUSPECT " .. i .. ":")
+         DebugLog("  📦 Objet: " .. suspect.objectName .. " (" .. suspect.objectClass .. ")")
+         DebugLog("  🔗 Path: " .. suspect.objectPath)
+         DebugLog("  💬 Texte: '" .. suspect.labelText .. "'")
+         DebugLog("  📍 Label: " .. suspect.labelPath)
+         
+         -- Analyser si c'est un vrai brainrot ou un faux positif
+         local isReal = suspect.labelText:find("Brainrot God") or 
+                       (suspect.labelText:find("Secret") and not suspect.labelText:find("Codes") and suspect.objectName ~= "Codes")
+         DebugLog("  ✅ Verdict: " .. (isReal and "VRAI BRAINROT" or "❌ FAUX POSITIF"))
+         DebugLog("---")
+      end
    end,
 })
 
