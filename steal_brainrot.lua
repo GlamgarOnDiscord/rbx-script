@@ -764,24 +764,142 @@ local function ScanBrainrots(notifyWebhook)
     return brainrots
 end
 
--- ESP pour brainrots
+-- ESP pour brainrots (TOUS les brainrots détectés)
 local function UpdateBrainrotESP()
     if not ESPBrainrots then return end
     
-    local brainrots = ScanBrainrots()
+    DebugLog("🔍 Update ESP Brainrots...")
     
-    for _, info in pairs(brainrots) do
-        local obj = info.object
-        RemoveESP(obj)
-        
-        local espText = info.rarity .. " - " .. info.name
-        if info.price then
-            espText = espText .. "\n$" .. info.price
+    -- Nettoyer ancien ESP
+    for _, obj in pairs(workspace:GetChildren()) do
+        if obj:IsA("Model") then
+            RemoveESP(obj)
         end
-        
-        local color = info.rarity == "God" and Color3.fromRGB(255, 215, 0) or Color3.fromRGB(255, 255, 255)
-        CreateESP(obj, espText, color)
     end
+    
+    -- Scanner TOUS les brainrots avec la nouvelle logique stricte
+    local espCount = 0
+    pcall(function()
+        for _, obj in pairs(workspace:GetChildren()) do
+            pcall(function()
+                if obj:IsA("Model") and obj.Name ~= "Camera" and obj.Name ~= "Terrain" and not obj:IsA("Player") then
+                    
+                    local nameLower = obj.Name:lower()
+                    local knownBrainrots = {
+                        "noobini pizzanini", "pizzanini", "noobini",
+                        "trippi troppi", "troppi", "trippi", 
+                        "tung tung tung sahur", "sahur", "tung",
+                        "sigma", "ohio", "skibidi", "gyatt", "rizz"
+                    }
+                    
+                    local nameMatches = false
+                    for _, knownName in pairs(knownBrainrots) do
+                        if nameLower == knownName or nameLower:find(knownName) then
+                            nameMatches = true
+                            break
+                        end
+                    end
+                    
+                    if nameMatches then
+                        local hasRarityLabel = false
+                        local hasPriceLabel = false
+                        local rarity = "Unknown"
+                        local price = "N/A"
+                        
+                        -- Analyser TextLabels
+                        for _, child in pairs(obj:GetDescendants()) do
+                            pcall(function()
+                                if child:IsA("TextLabel") and child.Text then
+                                    local text = child.Text
+                                    
+                                    -- Vérifier que ce n'est pas sur un tableau
+                                    local isOnBoard = false
+                                    local parent = child.Parent
+                                    while parent and parent ~= obj do
+                                        local parentName = parent.Name:lower()
+                                        if parentName:find("board") or parentName:find("tableau") or parentName:find("panel") or 
+                                           parentName:find("generation") or parentName:find("codes") or parentName:find("main") then
+                                            isOnBoard = true
+                                            break
+                                        end
+                                        parent = parent.Parent
+                                    end
+                                    
+                                    if not isOnBoard then
+                                        -- Détection rareté
+                                        if text:find("Brainrot God") then
+                                            rarity = "God"
+                                            hasRarityLabel = true
+                                        elseif text:find("Secret") and not text:find("Codes") and not text:find("Main") then
+                                            rarity = "Secret"
+                                            hasRarityLabel = true
+                                        elseif text == "Common" then
+                                            rarity = "Common"
+                                            hasRarityLabel = true
+                                        elseif text == "Rare" then
+                                            rarity = "Rare"
+                                            hasRarityLabel = true
+                                        elseif text == "Epic" then
+                                            rarity = "Epic"
+                                            hasRarityLabel = true
+                                        elseif text == "Legendary" then
+                                            rarity = "Legendary"
+                                            hasRarityLabel = true
+                                        elseif text == "Mythique" or text == "Mythical" then
+                                            rarity = "Mythique"
+                                            hasRarityLabel = true
+                                        end
+                                        
+                                        -- Détection prix
+                                        if text:find("%$%d") and not text:find("/s") and not text:find("MULTI") and not text:find("x") then
+                                            local extractedPrice = text:match("%$([%d%.]+[KMBT]?)")
+                                            if extractedPrice then
+                                                price = "$" .. extractedPrice
+                                                hasPriceLabel = true
+                                            end
+                                        end
+                                    end
+                                end
+                            end)
+                        end
+                        
+                        -- Si c'est un brainrot valide, ajouter ESP
+                        local isBrainrot = nameMatches and (hasRarityLabel or hasPriceLabel)
+                        
+                        if isBrainrot then
+                            local espText = rarity .. " - " .. obj.Name
+                            if price ~= "N/A" then
+                                espText = espText .. "\n" .. price
+                            end
+                            
+                            -- Couleurs par rareté
+                            local color = Color3.fromRGB(200, 200, 200) -- Gris par défaut
+                            if rarity == "God" then
+                                color = Color3.fromRGB(255, 215, 0) -- Or
+                            elseif rarity == "Secret" then
+                                color = Color3.fromRGB(255, 255, 255) -- Blanc
+                            elseif rarity == "Legendary" then
+                                color = Color3.fromRGB(255, 140, 0) -- Orange
+                            elseif rarity == "Mythique" then
+                                color = Color3.fromRGB(255, 0, 0) -- Rouge
+                            elseif rarity == "Epic" then
+                                color = Color3.fromRGB(128, 0, 255) -- Violet
+                            elseif rarity == "Rare" then
+                                color = Color3.fromRGB(0, 100, 255) -- Bleu
+                            elseif rarity == "Common" then
+                                color = Color3.fromRGB(255, 255, 255) -- Blanc
+                            end
+                            
+                            CreateESP(obj, espText, color)
+                            espCount = espCount + 1
+                        end
+                    end
+                end
+            end)
+        end
+    end)
+    
+    DebugLog("✅ ESP Brainrots: " .. espCount .. " affichés")
 end
 
 -- ESP pour joueurs
@@ -2119,22 +2237,198 @@ local HttpRequestsTestButton = ESPTab:CreateButton({
    end,
 })
 
+local AllModelsESPEnabled = false
+
+local AllModelsESPButton = ESPTab:CreateButton({
+   Name = "👁️ ESP Tous Models",
+   Callback = function()
+      AllModelsESPEnabled = not AllModelsESPEnabled
+      
+      if AllModelsESPEnabled then
+         DebugLog("👁️ ESP TOUS MODELS ACTIVÉ")
+         
+         -- Nettoyer ancien ESP
+         for _, obj in pairs(workspace:GetChildren()) do
+            if obj:IsA("Model") then
+               RemoveESP(obj)
+            end
+         end
+         
+         -- Ajouter ESP à tous les Models
+         local espCount = 0
+         for _, obj in pairs(workspace:GetChildren()) do
+            pcall(function()
+               if obj:IsA("Model") and obj.Name ~= "Camera" and obj.Name ~= "Terrain" and not obj:IsA("Player") then
+                  local espText = obj.Name .. "\n(" .. obj.ClassName .. ")"
+                  local color = Color3.fromRGB(150, 150, 150) -- Gris
+                  CreateESP(obj, espText, color)
+                  espCount = espCount + 1
+               end
+            end)
+         end
+         
+         DebugLog("✅ ESP ajouté à " .. espCount .. " Models")
+         
+      else
+         DebugLog("👁️ ESP TOUS MODELS DÉSACTIVÉ")
+         
+         -- Nettoyer ESP
+         for _, obj in pairs(workspace:GetChildren()) do
+            if obj:IsA("Model") then
+               RemoveESP(obj)
+            end
+         end
+      end
+   end,
+})
+
+local ClickDebugEnabled = false
+local mouse = player:GetMouse()
+
+local ClickDebugButton = ESPTab:CreateButton({
+   Name = "🖱️ Click Debug ON/OFF",
+   Callback = function()
+      ClickDebugEnabled = not ClickDebugEnabled
+      
+      if ClickDebugEnabled then
+         DebugLog("🖱️ CLICK DEBUG ACTIVÉ - Clique sur n'importe quel objet !")
+         DebugLog("📖 Instructions:")
+         DebugLog("  • Clique sur un objet dans le jeu")
+         DebugLog("  • Ses infos complètes s'afficheront en console")
+         DebugLog("  • Parfait pour debug détection brainrots")
+         
+         -- Connexion click
+         mouse.Button1Down:Connect(function()
+            if ClickDebugEnabled and mouse.Target then
+               local target = mouse.Target
+               local model = target.Parent
+               
+               DebugLog("=== 🖱️ OBJET CLIQUÉ ===")
+               DebugLog("🎯 TARGET:")
+               DebugLog("  📝 Name: " .. target.Name)
+               DebugLog("  🏷️ Class: " .. target.ClassName)
+               DebugLog("  🔗 Path: " .. target:GetFullName())
+               DebugLog("  📍 Position: " .. tostring(target.Position))
+               
+               if model and model:IsA("Model") then
+                  DebugLog("📦 MODEL PARENT:")
+                  DebugLog("  📝 Name: " .. model.Name)
+                  DebugLog("  🏷️ Class: " .. model.ClassName)
+                  DebugLog("  🔗 Path: " .. model:GetFullName())
+                  
+                  local allTexts = {}
+                  for _, child in pairs(model:GetDescendants()) do
+                     pcall(function()
+                        if child:IsA("TextLabel") and child.Text and child.Text ~= "" then
+                           table.insert(allTexts, child.Text)
+                        end
+                     end)
+                  end
+                  
+                  DebugLog("💬 TEXTES TROUVÉS: " .. #allTexts)
+                  for i, text in pairs(allTexts) do
+                     DebugLog("  " .. i .. ". '" .. text .. "'")
+                  end
+                  
+                  -- Test détection brainrot sur cet objet
+                  local nameLower = model.Name:lower()
+                  local knownBrainrots = {
+                     "noobini pizzanini", "pizzanini", "noobini",
+                     "trippi troppi", "troppi", "trippi", 
+                     "tung tung tung sahur", "sahur", "tung",
+                     "sigma", "ohio", "skibidi", "gyatt", "rizz"
+                  }
+                  
+                  local nameMatches = false
+                  local matchedPattern = ""
+                  for _, knownName in pairs(knownBrainrots) do
+                     if nameLower == knownName or nameLower:find(knownName) then
+                        nameMatches = true
+                        matchedPattern = knownName
+                        break
+                     end
+                  end
+                  
+                  DebugLog("🎭 TEST BRAINROT:")
+                  DebugLog("  📝 Nom reconnu: " .. (nameMatches and ("✅ " .. matchedPattern) or "❌ Non"))
+                  
+                  if nameMatches then
+                     local hasRarity = false
+                     local hasPrice = false
+                     for _, text in pairs(allTexts) do
+                        if text == "Common" or text == "Rare" or text == "Epic" or 
+                           text == "Legendary" or text == "Mythique" or text:find("God") or text:find("Secret") then
+                           hasRarity = true
+                        end
+                        if text:find("%$%d") and not text:find("/s") then
+                           hasPrice = true
+                        end
+                     end
+                     DebugLog("  🎨 Rareté détectée: " .. (hasRarity and "✅" or "❌"))
+                     DebugLog("  💰 Prix détecté: " .. (hasPrice and "✅" or "❌"))
+                     DebugLog("  ✅ Brainrot valide: " .. ((hasRarity or hasPrice) and "OUI" or "NON"))
+                  end
+               end
+               
+               DebugLog("=== FIN CLICK DEBUG ===")
+            end
+         end)
+         
+      else
+         DebugLog("🖱️ CLICK DEBUG DÉSACTIVÉ")
+      end
+   end,
+})
+
 local SimpleWebhookTestButton = ESPTab:CreateButton({
-   Name = "📡 Test Webhook Simple",
+   Name = "📡 Test Webhook Fixé",
    Callback = function()
       if WebhookConfig.url == "" then
          DebugLog("❌ URL webhook non configuré", "error")
          return
       end
       
-      DebugLog("📡 TEST WEBHOOK SIMPLE:")
+      DebugLog("📡 TEST WEBHOOK FIXÉ:")
       
       local success, result = pcall(function()
          local HttpService = game:GetService("HttpService")
          
-         -- Format simple pour test
+         -- Vérifier si HttpService est accessible
+         if not HttpService then
+            DebugLog("❌ HttpService non accessible", "error")
+            return false
+         end
+         
+         -- Test simple avec syn.request si disponible
+         if syn and syn.request then
+            DebugLog("🔧 Utilisation syn.request...")
+            local data = {
+               content = "🧪 **Test Webhook Fixé (syn.request)** \n" ..
+                        "👤 Joueur: " .. player.Name .. "\n" ..
+                        "🕒 Heure: " .. os.date("%H:%M:%S") .. "\n" ..
+                        "✅ Script fonctionnel!"
+            }
+            
+            local response = syn.request({
+               Url = WebhookConfig.url,
+               Method = "POST",
+               Headers = {["Content-Type"] = "application/json"},
+               Body = HttpService:JSONEncode(data)
+            })
+            
+            if response.Success and (response.StatusCode == 204 or response.StatusCode == 200) then
+               DebugLog("✅ WEBHOOK RÉUSSI avec syn.request !")
+               return true
+            else
+               DebugLog("❌ Webhook échoué avec syn.request: " .. response.StatusCode)
+               return false
+            end
+         end
+         
+         -- Fallback HttpService standard
+         DebugLog("🔧 Utilisation HttpService standard...")
          local data = {
-            content = "🧪 **Test Webhook MVP** \n" ..
+            content = "🧪 **Test Webhook Fixé** \n" ..
                      "👤 Joueur: " .. player.Name .. "\n" ..
                      "🕒 Heure: " .. os.date("%H:%M:%S") .. "\n" ..
                      "✅ Script fonctionnel!"
@@ -2147,16 +2441,16 @@ local SimpleWebhookTestButton = ESPTab:CreateButton({
             Body = HttpService:JSONEncode(data)
          }
          
-         DebugLog("🔄 Envoi requête simple...")
+         DebugLog("🔄 Envoi requête...")
          local response = HttpService:RequestAsync(request)
          
          DebugLog("📥 Response: " .. response.StatusCode .. " " .. response.StatusMessage)
          
          if response.Success and (response.StatusCode == 204 or response.StatusCode == 200) then
-            DebugLog("✅ WEBHOOK SIMPLE RÉUSSI !")
+            DebugLog("✅ WEBHOOK RÉUSSI !")
             return true
          else
-            DebugLog("❌ Webhook simple échoué: " .. response.StatusCode)
+            DebugLog("❌ Webhook échoué: " .. response.StatusCode)
             if response.Body then
                DebugLog("📄 Error: " .. tostring(response.Body):sub(1, 200))
             end
@@ -2166,9 +2460,11 @@ local SimpleWebhookTestButton = ESPTab:CreateButton({
       
       if not success then
          DebugLog("❌ Erreur test webhook: " .. tostring(result), "error")
-         if tostring(result):find("[Hh]ttp") then
-            DebugLog("💡 HttpRequests probablement désactivé", "warn")
-         end
+         DebugLog("🔧 SOLUTIONS WEBHOOK BLOQUÉ:")
+         DebugLog("  • HttpRequests désactivé dans executeur")
+         DebugLog("  • URL webhook invalide")
+         DebugLog("  • Fonction RequestAsync bloquée")
+         DebugLog("  • Utilise un autre executeur (Krnl, Synapse)")
       end
    end,
 })
