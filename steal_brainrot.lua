@@ -370,14 +370,40 @@ end
 
 -- Détecter si un brainrot est God ou Secret
 local function IsBrainrotGodOrSecret(brainrot)
+    -- CORRECTION: Exclure les tableaux/boards (faux positifs)
+    local objectName = brainrot.Name:lower()
+    local excludedObjects = {
+        "board", "tableau", "panel", "sign", "codes", "main", "shop", "menu", 
+        "gui", "interface", "display", "screen", "monitor", "generation"
+    }
+    
+    -- Vérifier si c'est un objet exclu
+    for _, excluded in pairs(excludedObjects) do
+        if objectName:find(excluded) then
+            DebugLog("⏭️ Objet exclu (tableau/board): " .. brainrot.Name)
+            return false, nil
+        end
+    end
+    
     for _, child in pairs(brainrot:GetDescendants()) do
         if child:IsA("TextLabel") and child.Text then
             local text = child.Text
-            -- CORRECTION: Plus spécifique pour éviter faux positifs
+            -- Detection spécifique pour éviter tableaux
             if text:find("Brainrot God") then
                 DebugLog("✅ Brainrot God détecté: '" .. text .. "' sur " .. brainrot.Name)
                 return true, "God"
-            elseif text:find("Secret") and not text:find("Codes") and not text:find("Main") and brainrot.Name ~= "Codes" and brainrot.Name ~= "Main" then
+            elseif text:find("Secret") and not text:find("Codes") and not text:find("Main") then
+                -- Vérifier que ce n'est pas sur un tableau
+                local parent = child.Parent
+                while parent and parent ~= brainrot do
+                    local parentName = parent.Name:lower()
+                    if parentName:find("board") or parentName:find("tableau") or parentName:find("panel") then
+                        DebugLog("⏭️ Secret trouvé sur tableau/board: " .. parent.Name .. " - ignoré")
+                        return false, nil
+                    end
+                    parent = parent.Parent
+                end
+                
                 DebugLog("✅ Brainrot Secret détecté: '" .. text .. "' sur " .. brainrot.Name)
                 return true, "Secret"
             end
@@ -389,7 +415,18 @@ local function IsBrainrotGodOrSecret(brainrot)
                     if text:find("Brainrot God") then
                         DebugLog("✅ Brainrot God détecté: '" .. text .. "' sur " .. brainrot.Name)
                         return true, "God"
-                    elseif text:find("Secret") and not text:find("Codes") and not text:find("Main") and brainrot.Name ~= "Codes" and brainrot.Name ~= "Main" then
+                    elseif text:find("Secret") and not text:find("Codes") and not text:find("Main") then
+                        -- Double vérification anti-tableau
+                        local parent = subChild.Parent
+                        while parent and parent ~= brainrot do
+                            local parentName = parent.Name:lower()
+                            if parentName:find("board") or parentName:find("tableau") or parentName:find("panel") or parentName:find("generation") then
+                                DebugLog("⏭️ Secret trouvé sur tableau/board GUI: " .. parent.Name .. " - ignoré")
+                                return false, nil
+                            end
+                            parent = parent.Parent
+                        end
+                        
                         DebugLog("✅ Brainrot Secret détecté: '" .. text .. "' sur " .. brainrot.Name)
                         return true, "Secret"
                     end
@@ -580,46 +617,62 @@ local function ScanBrainrots(notifyWebhook)
                         end
                     end
                     
-                    -- Méthode 2: Analyser TextLabels pour rareté et prix
+                    -- Méthode 2: Analyser TextLabels pour rareté et prix (en évitant tableaux)
                     for _, child in pairs(obj:GetDescendants()) do
                         pcall(function()
                             if child:IsA("TextLabel") and child.Text then
                                 local text = child.Text
                                 
-                                -- Détection rareté spécifique
-                                if text:find("Brainrot God") then
-                                    isBrainrot = true
-                                    rarity = "God"
-                                    DebugLog("🌟 BRAINROT GOD confirmé: " .. obj.Name)
-                                elseif text:find("Secret") and not text:find("Codes") and not text:find("Main") then
-                                    isBrainrot = true
-                                    rarity = "Secret"
-                                    DebugLog("🔮 BRAINROT SECRET confirmé: " .. obj.Name)
-                                elseif text:find("Common") then
-                                    rarity = "Common"
-                                elseif text:find("Rare") then
-                                    rarity = "Rare"
-                                elseif text:find("Epic") then
-                                    rarity = "Epic"
-                                elseif text:find("Legendary") then
-                                    rarity = "Legendary"
-                                elseif text:find("Mythique") then
-                                    rarity = "Mythique"
-                                end
-                                
-                                -- Détection prix améliorée (comme dans l'image $25)
-                                if text:find("%$%d") and not text:find("/s") and not text:find("MULTI") then
-                                    local extractedPrice = text:match("%$([%d%.]+[KMBT]?)")
-                                    if extractedPrice then
-                                        price = "$" .. extractedPrice
-                                        priceNumber = ConvertPriceToNumber(extractedPrice)
-                                        DebugLog("💰 Prix détecté: " .. price .. " pour " .. obj.Name)
+                                -- CORRECTION: Vérifier que ce n'est pas sur un tableau/board
+                                local isOnBoard = false
+                                local parent = child.Parent
+                                while parent and parent ~= obj do
+                                    local parentName = parent.Name:lower()
+                                    if parentName:find("board") or parentName:find("tableau") or parentName:find("panel") or 
+                                       parentName:find("generation") or parentName:find("codes") or parentName:find("main") then
+                                        isOnBoard = true
+                                        DebugLog("⏭️ Texte '" .. text .. "' trouvé sur tableau " .. parent.Name .. " - ignoré")
+                                        break
                                     end
+                                    parent = parent.Parent
                                 end
                                 
-                                -- Si contient "brainrot" dans le texte, c'est sûrement un brainrot
-                                if text:lower():find("brainrot") then
-                                    isBrainrot = true
+                                if not isOnBoard then
+                                    -- Détection rareté spécifique
+                                    if text:find("Brainrot God") then
+                                        isBrainrot = true
+                                        rarity = "God"
+                                        DebugLog("🌟 BRAINROT GOD confirmé: " .. obj.Name)
+                                    elseif text:find("Secret") and not text:find("Codes") and not text:find("Main") then
+                                        isBrainrot = true
+                                        rarity = "Secret"
+                                        DebugLog("🔮 BRAINROT SECRET confirmé: " .. obj.Name)
+                                    elseif text:find("Common") then
+                                        rarity = "Common"
+                                    elseif text:find("Rare") then
+                                        rarity = "Rare"
+                                    elseif text:find("Epic") then
+                                        rarity = "Epic"
+                                    elseif text:find("Legendary") then
+                                        rarity = "Legendary"
+                                    elseif text:find("Mythique") then
+                                        rarity = "Mythique"
+                                    end
+                                    
+                                    -- Détection prix améliorée (comme dans l'image $25)
+                                    if text:find("%$%d") and not text:find("/s") and not text:find("MULTI") then
+                                        local extractedPrice = text:match("%$([%d%.]+[KMBT]?)")
+                                        if extractedPrice then
+                                            price = "$" .. extractedPrice
+                                            priceNumber = ConvertPriceToNumber(extractedPrice)
+                                            DebugLog("💰 Prix détecté: " .. price .. " pour " .. obj.Name)
+                                        end
+                                    end
+                                    
+                                    -- Si contient "brainrot" dans le texte, c'est sûrement un brainrot
+                                    if text:lower():find("brainrot") then
+                                        isBrainrot = true
+                                    end
                                 end
                             end
                         end)
@@ -1638,12 +1691,30 @@ local FalsePositivesButton = DebugTab:CreateButton({
                      if child:IsA("TextLabel") and child.Text then
                         local text = child.Text
                         if text:find("Secret") or text:find("God") or text:find("Codes") or text:find("Main") then
+                           
+                           -- Analyser la hiérarchie pour détecter les tableaux
+                           local isOnBoard = false
+                           local boardName = "Aucun"
+                           local parent = child.Parent
+                           while parent and parent ~= obj do
+                              local parentName = parent.Name:lower()
+                              if parentName:find("board") or parentName:find("tableau") or parentName:find("panel") or 
+                                 parentName:find("generation") or parentName:find("codes") or parentName:find("main") then
+                                 isOnBoard = true
+                                 boardName = parent.Name
+                                 break
+                              end
+                              parent = parent.Parent
+                           end
+                           
                            table.insert(suspects, {
                               objectName = obj.Name,
                               objectClass = obj.ClassName,
                               objectPath = obj:GetFullName(),
                               labelText = text,
-                              labelPath = child:GetFullName()
+                              labelPath = child:GetFullName(),
+                              isOnBoard = isOnBoard,
+                              boardName = boardName
                            })
                         end
                      end
@@ -1654,19 +1725,48 @@ local FalsePositivesButton = DebugTab:CreateButton({
       end
       
       DebugLog("🔍 OBJETS SUSPECTS TROUVÉS: " .. #suspects)
+      local realBrainrots = 0
+      local falsePositives = 0
+      
       for i, suspect in pairs(suspects) do
          DebugLog("🚨 SUSPECT " .. i .. ":")
          DebugLog("  📦 Objet: " .. suspect.objectName .. " (" .. suspect.objectClass .. ")")
          DebugLog("  🔗 Path: " .. suspect.objectPath)
          DebugLog("  💬 Texte: '" .. suspect.labelText .. "'")
          DebugLog("  📍 Label: " .. suspect.labelPath)
+         DebugLog("  📋 Sur tableau: " .. (suspect.isOnBoard and ("✅ " .. suspect.boardName) or "❌ Non"))
          
          -- Analyser si c'est un vrai brainrot ou un faux positif
-         local isReal = suspect.labelText:find("Brainrot God") or 
-                       (suspect.labelText:find("Secret") and not suspect.labelText:find("Codes") and suspect.objectName ~= "Codes")
-         DebugLog("  ✅ Verdict: " .. (isReal and "VRAI BRAINROT" or "❌ FAUX POSITIF"))
+         local isReal = false
+         if suspect.labelText:find("Brainrot God") then
+            isReal = true
+         elseif suspect.labelText:find("Secret") and not suspect.labelText:find("Codes") and 
+                not suspect.objectName:lower():find("codes") and not suspect.isOnBoard then
+            isReal = true
+         end
+         
+         if isReal then
+            realBrainrots = realBrainrots + 1
+            DebugLog("  ✅ Verdict: VRAI BRAINROT")
+         else
+            falsePositives = falsePositives + 1
+            local reason = ""
+            if suspect.isOnBoard then
+               reason = " (texte sur tableau " .. suspect.boardName .. ")"
+            elseif suspect.labelText:find("Codes") or suspect.objectName:lower():find("codes") then
+               reason = " (contient 'Codes')"
+            else
+               reason = " (autres critères)"
+            end
+            DebugLog("  ❌ Verdict: FAUX POSITIF" .. reason)
+         end
          DebugLog("---")
       end
+      
+      DebugLog("📊 RÉSUMÉ ANALYSE:")
+      DebugLog("  ✅ Vrais brainrots: " .. realBrainrots)
+      DebugLog("  ❌ Faux positifs: " .. falsePositives)
+      DebugLog("  📋 Total suspects: " .. #suspects)
    end,
 })
 
