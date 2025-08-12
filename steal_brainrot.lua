@@ -112,26 +112,32 @@ local function ParseBrainrotTexts(texts)
         name = "Unknown"
     }
     
+    DebugLog("📝 Parsing textes: " .. table.concat(texts, ", "))
+    
     for _, text in pairs(texts) do
         local textLower = text:lower()
         
-        -- 1. Mutations (Gold, Diamond, Rainbow, etc.)
+        -- 1. Mutations (Gold, Diamond, etc.)
         if text:find("Gold") or text:find("Diamond") or text:find("Rainbow") or 
-           text:find("Lava") or text:find("Celestial") or text:find("Bloodrot") then
+           text:find("Lava") or text:find("Celestial") or text:find("Bloodrot") or text:find("Silver") then
             brainrot.mutation = text
+            DebugLog("✨ Mutation trouvée: " .. text)
             
         -- 2. Rareté
         elseif text == "Common" or text == "Rare" or text == "Epic" or 
                text == "Legendary" or text == "Mythic" or text:find("God") or text:find("Secret") then
             brainrot.rarity = text
+            DebugLog("🎨 Rareté trouvée: " .. text)
             
-        -- 3. Revenu généré ($/s)
-        elseif text:find("$/s") or text:find("$%d+/s") then
+        -- 3. Génération d'argent ($/s)
+        elseif text:find("$/s") or text:find("%$%d+/s") then
             brainrot.revenue = text
+            DebugLog("💸 Revenu trouvé: " .. text)
             
         -- 4. Prix d'achat ($1K, $500, etc.)
-        elseif text:find("$") and (text:find("K") or text:find("M") or text:find("B") or text:match("$%d+")) and not text:find("/s") then
+        elseif text:find("%$") and not text:find("/s") and (text:find("K") or text:find("M") or text:find("B") or text:match("%$%d+")) then
             brainrot.price = text
+            DebugLog("💰 Prix trouvé: " .. text)
             -- Convertir en nombre
             local numberStr = text:match("(%d+)")
             if numberStr then
@@ -145,14 +151,23 @@ local function ParseBrainrotTexts(texts)
         -- 5. STOLEN
         elseif textLower:find("stolen") then
             brainrot.stolen = true
+            DebugLog("🚨 STOLEN détecté")
             
-        -- 6. Nom (tout ce qui ne match pas les autres catégories)
-        elseif text ~= "" and not text:find("$") and not text:find("/s") and 
-               not (text == "Common" or text == "Rare" or text == "Epic" or text == "Legendary" or text == "Mythic") then
-            brainrot.name = text
+        -- 6. NOM - Tout ce qui reste et qui semble être un nom
+        else
+            -- Le nom est probablement ce qui ne rentre pas dans les autres catégories
+            -- et qui contient des lettres/mots normaux
+            if text ~= "" and not text:find("%$") and not text:find("/s") and 
+               not text:find("Gold") and not text:find("Diamond") and not text:find("Rainbow") and
+               not (text == "Common" or text == "Rare" or text == "Epic" or text == "Legendary" or text == "Mythic") and
+               not textLower:find("stolen") and not text:find("God") and not text:find("Secret") then
+                brainrot.name = text
+                DebugLog("📝 Nom trouvé: " .. text)
+            end
         end
     end
     
+    DebugLog("📊 Résultat parsing: " .. brainrot.name .. " | " .. brainrot.rarity .. " | " .. brainrot.price .. " | " .. brainrot.mutation)
     return brainrot
 end
 
@@ -264,7 +279,39 @@ local function UpdateESP()
     DebugLog("✅ ESP mis à jour: " .. #brainrots .. " brainrots affichés")
 end
 
--- Fonction Auto Buy
+-- Fonction pour trouver la base du joueur
+local function FindPlayerBase()
+    -- Chercher base avec "structure base home"
+    for _, obj in pairs(workspace:GetDescendants()) do
+        pcall(function()
+            if obj:IsA("Model") or obj:IsA("BasePart") then
+                local objName = obj.Name:lower()
+                if objName:find("structure") and objName:find("base") and objName:find("home") then
+                    local position = nil
+                    if obj:IsA("BasePart") then
+                        position = obj.Position
+                    elseif obj:IsA("Model") and obj.PrimaryPart then
+                        position = obj.PrimaryPart.Position
+                    end
+                    
+                    if position then
+                        DebugLog("🏠 Base trouvée: " .. obj:GetFullName() .. " à " .. tostring(position))
+                        return position
+                    end
+                end
+            end
+        end)
+    end
+    
+    -- Fallback: position actuelle
+    if player.Character and player.Character:FindFirstChild("HumanoidRootPart") then
+        return player.Character.HumanoidRootPart.Position
+    end
+    
+    return nil
+end
+
+-- Fonction Auto Buy avec suivi
 local function AutoBuyBrainrots()
     if not AutoBuyEnabled then return end
     
@@ -304,24 +351,82 @@ local function AutoBuyBrainrots()
         return priorityA > priorityB
     end)
     
-    -- Acheter le premier brainrot disponible
+    -- Acheter et suivre le premier brainrot disponible
     for _, brainrot in pairs(targetBrainrots) do
         if not brainrot.stolen then -- Ne pas acheter si déjà volé
-            DebugLog("🛒 Tentative d'achat: " .. brainrot.name .. " (" .. brainrot.rarity .. ") - " .. brainrot.price)
+            DebugLog("🛒 Processus d'achat: " .. brainrot.name .. " (" .. brainrot.rarity .. ") - " .. brainrot.price)
             
-            -- Se téléporter au brainrot
             if player.Character and player.Character:FindFirstChild("HumanoidRootPart") then
-                player.Character.HumanoidRootPart.CFrame = CFrame.new(brainrot.position + Vector3.new(0, 5, 0))
-                wait(0.5)
+                local character = player.Character
+                local humanoidRootPart = character.HumanoidRootPart
                 
-                -- Simuler appui sur E
+                -- Étape 1: Aller à côté du brainrot
+                DebugLog("📍 Étape 1: Se téléporter à côté du brainrot")
+                local nearPosition = brainrot.position + Vector3.new(3, 2, 3) -- Position à côté
+                humanoidRootPart.CFrame = CFrame.new(nearPosition)
+                wait(1)
+                
+                -- Étape 2: Essayer d'acheter avec E
+                DebugLog("💰 Étape 2: Tentative d'achat avec E")
                 local VirtualInputManager = game:GetService("VirtualInputManager")
                 VirtualInputManager:SendKeyEvent(true, Enum.KeyCode.E, false, game)
                 wait(0.1)
                 VirtualInputManager:SendKeyEvent(false, Enum.KeyCode.E, false, game)
+                wait(1)
                 
-                DebugLog("✅ Achat tenté pour " .. brainrot.name)
-                break -- Acheter seulement un à la fois
+                -- Étape 3: Suivre le brainrot vers la base
+                DebugLog("🏃 Étape 3: Suivi du brainrot vers la base")
+                local basePosition = FindPlayerBase()
+                
+                if basePosition then
+                    -- Suivre le brainrot pendant qu'il se déplace vers la base
+                    for i = 1, 20 do -- Maximum 20 secondes de suivi
+                        pcall(function()
+                            -- Vérifier si le brainrot existe encore
+                            if brainrot.object and brainrot.object.Parent then
+                                local currentBrainrotPos = nil
+                                
+                                -- Obtenir position actuelle du brainrot
+                                if brainrot.object.PrimaryPart then
+                                    currentBrainrotPos = brainrot.object.PrimaryPart.Position
+                                else
+                                    pcall(function()
+                                        local pivot = brainrot.object:GetPivot()
+                                        if pivot then currentBrainrotPos = pivot.Position end
+                                    end)
+                                end
+                                
+                                if currentBrainrotPos then
+                                    -- Se téléporter près du brainrot
+                                    local followPos = currentBrainrotPos + Vector3.new(2, 1, 2)
+                                    humanoidRootPart.CFrame = CFrame.new(followPos)
+                                    DebugLog("👣 Suivi brainrot à: " .. tostring(currentBrainrotPos))
+                                    
+                                    -- Vérifier si proche de la base
+                                    local distanceToBase = (currentBrainrotPos - basePosition).Magnitude
+                                    if distanceToBase < 20 then
+                                        DebugLog("🏠 Brainrot arrivé à la base !")
+                                        break
+                                    end
+                                else
+                                    DebugLog("❌ Position brainrot introuvable")
+                                    break
+                                end
+                            else
+                                DebugLog("❌ Brainrot disparu ou supprimé")
+                                break
+                            end
+                        end)
+                        
+                        wait(1) -- Attendre 1 seconde entre chaque suivi
+                    end
+                    
+                    DebugLog("✅ Processus d'achat terminé pour " .. brainrot.name)
+                else
+                    DebugLog("❌ Base introuvable")
+                end
+                
+                break -- Traiter seulement un brainrot à la fois
             end
         end
     end
@@ -380,7 +485,7 @@ local AutoBuyToggle = AutoBuyTab:CreateToggle({
          spawn(function()
             while AutoBuyEnabled do
                AutoBuyBrainrots()
-               wait(5) -- Vérifier toutes les 5 secondes
+               wait(10) -- Vérifier toutes les 10 secondes pour éviter spam
             end
          end)
       else
@@ -680,7 +785,32 @@ local ModelsOnCarpetButton = DebugTab:CreateButton({
    end,
 })
 
--- 6. Scan complet Workspace
+-- 6. Test Parsing des Noms
+local TestParsingButton = DebugTab:CreateButton({
+   Name = "📝 Test Parsing Noms",
+   Callback = function()
+      DebugLog("=== 📝 TEST PARSING NOMS ===")
+      
+      local brainrots = DetectAllBrainrots()
+      
+      DebugLog("📊 Brainrots trouvés: " .. #brainrots)
+      
+      for i, brainrot in pairs(brainrots) do
+         DebugLog("--- BRAINROT " .. i .. " ---")
+         DebugLog("  📝 Nom: '" .. brainrot.name .. "'")
+         DebugLog("  🎨 Rareté: '" .. brainrot.rarity .. "'")
+         DebugLog("  💰 Prix: '" .. brainrot.price .. "'")
+         DebugLog("  💸 Revenu: '" .. brainrot.revenue .. "'")
+         DebugLog("  ✨ Mutation: '" .. brainrot.mutation .. "'")
+         DebugLog("  🚨 STOLEN: " .. tostring(brainrot.stolen))
+         DebugLog("  📄 Tous textes: " .. table.concat(brainrot.allTexts, " | "))
+      end
+      
+      DebugLog("=== FIN TEST PARSING ===")
+   end,
+})
+
+-- 7. Scan complet Workspace
 local FullWorkspaceScanButton = DebugTab:CreateButton({
    Name = "🌍 Scan Complet Workspace",
    Callback = function()
@@ -739,11 +869,14 @@ local FullWorkspaceScanButton = DebugTab:CreateButton({
 
 -- Message de bienvenue
 Rayfield:Notify({
-   Title = "🔍 Debug Simple",
-   Content = "Version ultra-simplifiée pour debug uniquement",
-   Duration = 3,
+   Title = "🎯 Steal Brainrot COMPLET",
+   Content = "ESP Box + Auto Buy + Debug - Tout intégré !",
+   Duration = 5,
    Image = nil,
 })
 
-DebugLog("🚀 DEBUG SIMPLE VERSION - Prêt à utiliser !")
-DebugLog("🎯 6 boutons de debug disponibles")
+DebugLog("🚀 STEAL BRAINROT COMPLET - Prêt à utiliser !")
+DebugLog("👁️ ESP avec box colorées")
+DebugLog("🛒 Auto Buy avec suivi vers base")
+DebugLog("🔍 Debug complet avec parsing noms")
+DebugLog("📝 Parsing des 6 textes: mutation, rareté, génération, prix, stolen, nom")
