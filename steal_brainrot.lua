@@ -50,6 +50,34 @@ local SelectedRarities = {}
 local espBoxes = {}
 local detectedBrainrots = {}
 
+-- Tables de correspondance pour éviter les chaînes de if répétitives
+local MUTATION_PATTERNS = {
+    "gold", "diamond", "rainbow", "lava", "celestial", "bloodrot", "silver"
+}
+
+local RARITY_PATTERNS = {
+    "common", "rare", "epic", "legendary", "mythic", "god", "secret"
+}
+
+local PRICE_MULTIPLIERS = {
+    K = 1000,
+    M = 1000000,
+    B = 1000000000
+}
+
+-- Conversion dédiée d'un prix texte en nombre
+local function ConvertPrice(priceText)
+    local numberStr = priceText:match("(%d+)")
+    if not numberStr then return 0 end
+    local num = tonumber(numberStr) or 0
+    for suffix, multiplier in pairs(PRICE_MULTIPLIERS) do
+        if priceText:find(suffix) then
+            return num * multiplier
+        end
+    end
+    return num
+end
+
 -- Fonction pour créer ESP Box
 local function CreateESPBox(obj, text, color)
     pcall(function()
@@ -100,73 +128,76 @@ local function RemoveESPBox(obj)
     end)
 end
 
--- Fonction pour analyser les 6 textes d'un brainrot
+-- L'ordre de priorité des tests est important :
+-- mutation > rareté > revenu > prix > stolen > nom
 local function ParseBrainrotTexts(texts)
     local brainrot = {
         mutation = "None",
-        rarity = "Unknown", 
+        rarity = "Unknown",
         revenue = "N/A",
         price = "N/A",
         priceNumber = 0,
         stolen = false,
         name = "Unknown"
     }
-    
+
     DebugLog("📝 Parsing textes: " .. table.concat(texts, ", "))
-    
+
     for _, text in pairs(texts) do
         local textLower = text:lower()
-        
-        -- 1. Mutations (Gold, Diamond, etc.)
-        if text:find("Gold") or text:find("Diamond") or text:find("Rainbow") or 
-           text:find("Lava") or text:find("Celestial") or text:find("Bloodrot") or text:find("Silver") then
-            brainrot.mutation = text
-            DebugLog("✨ Mutation trouvée: " .. text)
-            
-        -- 2. Rareté
-        elseif text == "Common" or text == "Rare" or text == "Epic" or 
-               text == "Legendary" or text == "Mythic" or text:find("God") or text:find("Secret") then
-            brainrot.rarity = text
-            DebugLog("🎨 Rareté trouvée: " .. text)
-            
-        -- 3. Génération d'argent ($/s)
-        elseif text:find("$/s") or text:find("%$%d+/s") then
-            brainrot.revenue = text
-            DebugLog("💸 Revenu trouvé: " .. text)
-            
-        -- 4. Prix d'achat ($1K, $500, etc.)
-        elseif text:find("%$") and not text:find("/s") and (text:find("K") or text:find("M") or text:find("B") or text:match("%$%d+")) then
-            brainrot.price = text
-            DebugLog("💰 Prix trouvé: " .. text)
-            -- Convertir en nombre
-            local numberStr = text:match("(%d+)")
-            if numberStr then
-                local num = tonumber(numberStr) or 0
-                if text:find("K") then num = num * 1000
-                elseif text:find("M") then num = num * 1000000
-                elseif text:find("B") then num = num * 1000000000 end
-                brainrot.priceNumber = num
-            end
-            
-        -- 5. STOLEN
-        elseif textLower:find("stolen") then
-            brainrot.stolen = true
-            DebugLog("🚨 STOLEN détecté")
-            
-        -- 6. NOM - Tout ce qui reste et qui semble être un nom
-        else
-            -- Le nom est probablement ce qui ne rentre pas dans les autres catégories
-            -- et qui contient des lettres/mots normaux
-            if text ~= "" and not text:find("%$") and not text:find("/s") and 
-               not text:find("Gold") and not text:find("Diamond") and not text:find("Rainbow") and
-               not (text == "Common" or text == "Rare" or text == "Epic" or text == "Legendary" or text == "Mythic") and
-               not textLower:find("stolen") and not text:find("God") and not text:find("Secret") then
-                brainrot.name = text
-                DebugLog("📝 Nom trouvé: " .. text)
+        local processed = false
+
+        -- 1. Mutations
+        for _, pattern in ipairs(MUTATION_PATTERNS) do
+            if textLower:find(pattern) then
+                brainrot.mutation = text
+                DebugLog("✨ Mutation trouvée: " .. text)
+                processed = true
+                break
             end
         end
+
+        -- 2. Rareté
+        if not processed then
+            for _, pattern in ipairs(RARITY_PATTERNS) do
+                if textLower:find(pattern) then
+                    brainrot.rarity = text
+                    DebugLog("🎨 Rareté trouvée: " .. text)
+                    processed = true
+                    break
+                end
+            end
+        end
+
+        -- 3. Génération d'argent ($/s)
+        if not processed and (text:find("$/s") or text:find("%$%d+/s")) then
+            brainrot.revenue = text
+            DebugLog("💸 Revenu trouvé: " .. text)
+            processed = true
+        end
+
+        -- 4. Prix d'achat ($1K, $500, etc.)
+        if not processed and text:find("%$") and not text:find("/s") then
+            brainrot.price = text
+            brainrot.priceNumber = ConvertPrice(text)
+            DebugLog("💰 Prix trouvé: " .. text)
+            processed = true
+        end
+
+        -- 5. STOLEN
+        if not processed and textLower:find("stolen") then
+            brainrot.stolen = true
+            DebugLog("🚨 STOLEN détecté")
+            processed = true
+        end
+
+        -- 6. NOM - Tout ce qui reste et qui semble être un nom
+        if not processed and text ~= "" and not text:find("%$") and not text:find("/s") then
+            brainrot.name = text
+            DebugLog("📝 Nom trouvé: " .. text)
+        end
     end
-    
+
     DebugLog("📊 Résultat parsing: " .. brainrot.name .. " | " .. brainrot.rarity .. " | " .. brainrot.price .. " | " .. brainrot.mutation)
     return brainrot
 end
