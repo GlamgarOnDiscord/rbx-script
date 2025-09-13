@@ -229,7 +229,7 @@ while true do
         end
     end
     
-    wait(1)
+    task.wait(1)
 end
 ```
 

@@ -364,15 +364,15 @@ local function AutoBuyBrainrots()
                 DebugLog("📍 Étape 1: Se téléporter à côté du brainrot")
                 local nearPosition = brainrot.position + Vector3.new(3, 2, 3) -- Position à côté
                 humanoidRootPart.CFrame = CFrame.new(nearPosition)
-                wait(1)
+                task.wait(1)
                 
                 -- Étape 2: Essayer d'acheter avec E
                 DebugLog("💰 Étape 2: Tentative d'achat avec E")
                 local VirtualInputManager = game:GetService("VirtualInputManager")
                 VirtualInputManager:SendKeyEvent(true, Enum.KeyCode.E, false, game)
-                wait(0.1)
+                task.wait(0.1)
                 VirtualInputManager:SendKeyEvent(false, Enum.KeyCode.E, false, game)
-                wait(1)
+                task.wait(1)
                 
                 -- Étape 3: Suivre le brainrot vers la base
                 DebugLog("🏃 Étape 3: Suivi du brainrot vers la base")
@@ -418,7 +418,7 @@ local function AutoBuyBrainrots()
                             end
                         end)
                         
-                        wait(1) -- Attendre 1 seconde entre chaque suivi
+                        task.wait(1) -- Attendre 1 seconde entre chaque suivi
                     end
                     
                     DebugLog("✅ Processus d'achat terminé pour " .. brainrot.name)
@@ -445,7 +445,7 @@ local ESPToggle = ESPTab:CreateToggle({
          spawn(function()
             while ESPEnabled do
                UpdateESP()
-               wait(3) -- Mise à jour toutes les 3 secondes
+               task.wait(3) -- Mise à jour toutes les 3 secondes
             end
          end)
       else
@@ -485,7 +485,7 @@ local AutoBuyToggle = AutoBuyTab:CreateToggle({
          spawn(function()
             while AutoBuyEnabled do
                AutoBuyBrainrots()
-               wait(10) -- Vérifier toutes les 10 secondes pour éviter spam
+               task.wait(10) -- Vérifier toutes les 10 secondes pour éviter spam
             end
          end)
       else

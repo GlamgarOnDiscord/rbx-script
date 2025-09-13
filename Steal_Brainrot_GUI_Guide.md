@@ -130,12 +130,12 @@ local function AutoCollectItems()
                     local part = item:FindFirstChild("Handle") or item:FindFirstChild("Part")
                     if part and (rootPart.Position - part.Position).Magnitude < 50 then
                         SafeTeleport(part.Position)
-                        wait(0.1)
+                        task.wait(0.1)
                     end
                 end
             end
         end
-        wait(0.5)
+        task.wait(0.5)
     end
 end
 
@@ -155,7 +155,7 @@ local function AutoStealFunction()
                 end
             end
         end
-        wait(1)
+        task.wait(1)
     end
 end
 
@@ -173,7 +173,7 @@ local function AutoBuyFunction()
                 end
             end
         end
-        wait(2)
+        task.wait(2)
     end
 end
 ```
@@ -198,7 +198,7 @@ local AutoFarmToggle = MainTab:CreateToggle({
             while AutoFarm do
                -- Logic auto farm ici
                AutoCollectItems()
-               wait(1)
+               task.wait(1)
             end
          end)
       end
