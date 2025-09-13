@@ -52,52 +52,84 @@ local detectedBrainrots = {}
 
 -- Fonction pour créer ESP Box
 local function CreateESPBox(obj, text, color)
-    pcall(function()
-        -- Supprimer ancien ESP s'il existe
-        RemoveESPBox(obj)
-        
-        local gui = Instance.new("BillboardGui")
-        gui.Name = "ESP_" .. obj.Name
-        gui.Adornee = obj
-        gui.Size = UDim2.new(0, 200, 0, 100)
-        gui.StudsOffset = Vector3.new(0, 2, 0)
-        gui.AlwaysOnTop = true
-        gui.LightInfluence = 0
-        
-        -- Cadre principal
-        local frame = Instance.new("Frame")
-        frame.Size = UDim2.new(1, 0, 1, 0)
-        frame.BackgroundTransparency = 0.7
-        frame.BackgroundColor3 = color
-        frame.BorderSizePixel = 2
-        frame.BorderColor3 = color
-        frame.Parent = gui
-        
-        -- Texte
-        local label = Instance.new("TextLabel")
-        label.Size = UDim2.new(1, 0, 1, 0)
-        label.BackgroundTransparency = 1
-        label.Text = text
-        label.TextColor3 = Color3.new(1, 1, 1)
-        label.TextScaled = true
-        label.TextStrokeTransparency = 0
-        label.TextStrokeColor3 = Color3.new(0, 0, 0)
-        label.Font = Enum.Font.GothamBold
-        label.Parent = frame
-        
-        gui.Parent = game.CoreGui
-        espBoxes[obj] = gui
+    -- Supprimer ancien ESP s'il existe
+    RemoveESPBox(obj)
+
+    local gui
+    local success, err = pcall(function()
+        gui = Instance.new("BillboardGui")
     end)
+    if not success then
+        DebugLog("Erreur création BillboardGui: " .. tostring(err), "error")
+        return
+    end
+
+    gui.Name = "ESP_" .. obj.Name
+    gui.Adornee = obj
+    gui.Size = UDim2.new(0, 200, 0, 100)
+    gui.StudsOffset = Vector3.new(0, 2, 0)
+    gui.AlwaysOnTop = true
+    gui.LightInfluence = 0
+
+    -- Cadre principal
+    local frame
+    success, err = pcall(function()
+        frame = Instance.new("Frame")
+    end)
+    if not success then
+        DebugLog("Erreur création Frame: " .. tostring(err), "error")
+        return
+    end
+
+    frame.Size = UDim2.new(1, 0, 1, 0)
+    frame.BackgroundTransparency = 0.7
+    frame.BackgroundColor3 = color
+    frame.BorderSizePixel = 2
+    frame.BorderColor3 = color
+    frame.Parent = gui
+
+    -- Texte
+    local label
+    success, err = pcall(function()
+        label = Instance.new("TextLabel")
+    end)
+    if not success then
+        DebugLog("Erreur création TextLabel: " .. tostring(err), "error")
+        return
+    end
+
+    label.Size = UDim2.new(1, 0, 1, 0)
+    label.BackgroundTransparency = 1
+    label.Text = text
+    label.TextColor3 = Color3.new(1, 1, 1)
+    label.TextScaled = true
+    label.TextStrokeTransparency = 0
+    label.TextStrokeColor3 = Color3.new(0, 0, 0)
+    label.Font = Enum.Font.GothamBold
+    label.Parent = frame
+
+    local parentSuccess, parentErr = pcall(function()
+        gui.Parent = game.CoreGui
+    end)
+    if not parentSuccess then
+        DebugLog("Erreur assignation parent GUI: " .. tostring(parentErr), "error")
+        return
+    end
+
+    espBoxes[obj] = gui
 end
 
 -- Fonction pour supprimer ESP Box
 local function RemoveESPBox(obj)
-    pcall(function()
-        if espBoxes[obj] then
+    if espBoxes[obj] then
+        local success, err = pcall(function()
             espBoxes[obj]:Destroy()
-            espBoxes[obj] = nil
+        end)
+        if not success then
+            DebugLog("Erreur destruction ESPBox: " .. tostring(err), "error")
         end
-    end)
+        espBoxes[obj] = nil
+    end
 end
 
 -- Fonction pour analyser les 6 textes d'un brainrot
@@ -189,41 +221,44 @@ local function DetectAllBrainrots()
     
     -- Scanner models sur le tapis
     for _, obj in pairs(workspace:GetDescendants()) do
-        pcall(function()
-            if obj:IsA("Model") and obj ~= carpet then
-                local modelPos = nil
-                if obj.PrimaryPart then
-                    modelPos = obj.PrimaryPart.Position
-                else
-                    pcall(function()
-                        local pivot = obj:GetPivot()
-                        if pivot then modelPos = pivot.Position end
-                    end)
-                end
-                
-                if modelPos and (modelPos - carpetPos).Magnitude < 100 then
-                    -- Collecter tous les textes
-                    local texts = {}
-                    for _, child in pairs(obj:GetDescendants()) do
-                        if child:IsA("TextLabel") and child.Text ~= "" then
-                            table.insert(texts, child.Text)
-                        end
-                    end
-                    
-                    -- Si 6 textes trouvés, c'est probablement un brainrot
-                    if #texts >= 5 then -- Au moins 5 textes pour être sûr
-                        local brainrotData = ParseBrainrotTexts(texts)
-                        brainrotData.object = obj
-                        brainrotData.position = modelPos
-                        brainrotData.allTexts = texts
-                        
-                        table.insert(detectedBrainrots, brainrotData)
-                        
-                        DebugLog("🎯 Brainrot détecté: " .. brainrotData.name .. " | " .. brainrotData.rarity .. " | " .. brainrotData.price)
-                    end
+        if obj:IsA("Model") and obj ~= carpet then
+            local modelPos = nil
+            if obj.PrimaryPart then
+                modelPos = obj.PrimaryPart.Position
+            else
+                local pivot
+                local success, err = pcall(function()
+                    pivot = obj:GetPivot()
+                end)
+                if not success then
+                    DebugLog("Erreur GetPivot sur " .. obj.Name .. ": " .. tostring(err), "warn")
+                elseif pivot then
+                    modelPos = pivot.Position
                 end
             end
-        end)
+
+            if modelPos and (modelPos - carpetPos).Magnitude < 100 then
+                -- Collecter tous les textes
+                local texts = {}
+                for _, child in pairs(obj:GetDescendants()) do
+                    if child:IsA("TextLabel") and child.Text ~= "" then
+                        table.insert(texts, child.Text)
+                    end
+                end
+
+                -- Si 6 textes trouvés, c'est probablement un brainrot
+                if #texts >= 5 then -- Au moins 5 textes pour être sûr
+                    local brainrotData = ParseBrainrotTexts(texts)
+                    brainrotData.object = obj
+                    brainrotData.position = modelPos
+                    brainrotData.allTexts = texts
+
+                    table.insert(detectedBrainrots, brainrotData)
+
+                    DebugLog("🎯 Brainrot détecté: " .. brainrotData.name .. " | " .. brainrotData.rarity .. " | " .. brainrotData.price)
+                end
+            end
+        end
     end
     
     DebugLog("📊 Total brainrots détectés: " .. #detectedBrainrots)
