@@ -382,6 +382,11 @@ local function AutoBuyBrainrots()
     
     -- Acheter et suivre le premier brainrot disponible
     for _, brainrot in pairs(targetBrainrots) do
+        if not AutoBuyEnabled then
+            DebugLog("⛔ Auto Buy interrompu (désactivé)")
+            return
+        end
+
         if not brainrot.stolen then -- Ne pas acheter si déjà volé
             DebugLog("🛒 Processus d'achat: " .. brainrot.name .. " (" .. brainrot.rarity .. ") - " .. brainrot.price)
             
@@ -409,44 +414,52 @@ local function AutoBuyBrainrots()
                 
                 if basePosition then
                     -- Suivre le brainrot pendant qu'il se déplace vers la base
+                    local followAborted = false
+
                     for i = 1, 20 do -- Maximum 20 secondes de suivi
                         local shouldBreak = false
-                        pcall(function()
-                            -- Vérifier si le brainrot existe encore
-                            if brainrot.object and brainrot.object.Parent then
-                                local currentBrainrotPos = nil
 
-                                -- Obtenir position actuelle du brainrot
-                                if brainrot.object.PrimaryPart then
-                                    currentBrainrotPos = brainrot.object.PrimaryPart.Position
-                                else
-                                    pcall(function()
-                                        local pivot = brainrot.object:GetPivot()
-                                        if pivot then currentBrainrotPos = pivot.Position end
-                                    end)
-                                end
+                        if not AutoBuyEnabled then
+                            followAborted = true
+                            shouldBreak = true
+                        else
+                            pcall(function()
+                                -- Vérifier si le brainrot existe encore
+                                if brainrot.object and brainrot.object.Parent then
+                                    local currentBrainrotPos = nil
 
-                                if currentBrainrotPos then
-                                    -- Se téléporter près du brainrot
-                                    local followPos = currentBrainrotPos + Vector3.new(2, 1, 2)
-                                    humanoidRootPart.CFrame = CFrame.new(followPos)
-                                    DebugLog("👣 Suivi brainrot à: " .. tostring(currentBrainrotPos))
+                                    -- Obtenir position actuelle du brainrot
+                                    if brainrot.object.PrimaryPart then
+                                        currentBrainrotPos = brainrot.object.PrimaryPart.Position
+                                    else
+                                        pcall(function()
+                                            local pivot = brainrot.object:GetPivot()
+                                            if pivot then currentBrainrotPos = pivot.Position end
+                                        end)
+                                    end
 
-                                    -- Vérifier si proche de la base
-                                    local distanceToBase = (currentBrainrotPos - basePosition).Magnitude
-                                    if distanceToBase < 20 then
-                                        DebugLog("🏠 Brainrot arrivé à la base !")
+                                    if currentBrainrotPos then
+                                        -- Se téléporter près du brainrot
+                                        local followPos = currentBrainrotPos + Vector3.new(2, 1, 2)
+                                        humanoidRootPart.CFrame = CFrame.new(followPos)
+                                        DebugLog("👣 Suivi brainrot à: " .. tostring(currentBrainrotPos))
+
+                                        -- Vérifier si proche de la base
+                                        local distanceToBase = (currentBrainrotPos - basePosition).Magnitude
+                                        if distanceToBase < 20 then
+                                            DebugLog("🏠 Brainrot arrivé à la base !")
+                                            shouldBreak = true
+                                        end
+                                    else
+                                        DebugLog("❌ Position brainrot introuvable")
                                         shouldBreak = true
                                     end
                                 else
-                                    DebugLog("❌ Position brainrot introuvable")
+                                    DebugLog("❌ Brainrot disparu ou supprimé")
                                     shouldBreak = true
                                 end
-                            else
-                                DebugLog("❌ Brainrot disparu ou supprimé")
-                                shouldBreak = true
-                            end
-                        end)
+                            end)
+                        end
 
                         if shouldBreak then
                             break
@@ -454,7 +467,12 @@ local function AutoBuyBrainrots()
 
                         wait(1) -- Attendre 1 seconde entre chaque suivi
                     end
-                    
+
+                    if followAborted then
+                        DebugLog("⛔ Suivi interrompu (Auto Buy désactivé)")
+                        return
+                    end
+
                     DebugLog("✅ Processus d'achat terminé pour " .. brainrot.name)
                 else
                     DebugLog("❌ Base introuvable")
