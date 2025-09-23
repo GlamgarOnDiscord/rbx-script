@@ -50,6 +50,30 @@ local SelectedRarities = {}
 local espBoxes = {}
 local detectedBrainrots = {}
 
+-- Cache des modèles potentiels pour éviter de parcourir tout le workspace à chaque fois
+local cachedModels = {}
+
+local function TrackModel(obj)
+    if obj:IsA("Model") and obj.Name ~= "Carpet" then
+        cachedModels[obj] = true
+    end
+end
+
+local function UntrackModel(obj)
+    if cachedModels[obj] then
+        cachedModels[obj] = nil
+    end
+end
+
+-- Remplir le cache initialement
+for _, obj in ipairs(workspace:GetDescendants()) do
+    TrackModel(obj)
+end
+
+-- Mettre à jour le cache dynamiquement
+workspace.DescendantAdded:Connect(TrackModel)
+workspace.DescendantRemoving:Connect(UntrackModel)
+
 -- Tables de correspondance pour éviter les chaînes de if répétitives
 local MUTATION_PATTERNS = {
     "gold", "diamond", "rainbow", "lava", "celestial", "bloodrot", "silver"
@@ -77,6 +101,8 @@ local function ConvertPrice(priceText)
     end
     return num
 end
+
+
 
 -- Fonction pour créer ESP Box
 local function CreateESPBox(obj, text, color)
@@ -250,6 +276,45 @@ local function DetectAllBrainrots()
     
     local carpetPos = carpet.Position
     
+    -- Scanner uniquement les modèles en cache
+    for obj, _ in pairs(cachedModels) do
+        pcall(function()
+            if obj and obj.Parent and obj ~= carpet then
+                local modelPos = nil
+                if obj.PrimaryPart then
+                    modelPos = obj.PrimaryPart.Position
+                else
+                    pcall(function()
+                        local pivot = obj:GetPivot()
+                        if pivot then modelPos = pivot.Position end
+                    end)
+                end
+
+                if modelPos and (modelPos - carpetPos).Magnitude < 100 then
+                    -- Collecter tous les textes
+                    local texts = {}
+                    for _, child in pairs(obj:GetDescendants()) do
+                        if child:IsA("TextLabel") and child.Text ~= "" then
+                            table.insert(texts, child.Text)
+                        end
+                    end
+
+                    -- Si 6 textes trouvés, c'est probablement un brainrot
+                    if #texts >= 5 then -- Au moins 5 textes pour être sûr
+                        local brainrotData = ParseBrainrotTexts(texts)
+                        brainrotData.object = obj
+                        brainrotData.position = modelPos
+                        brainrotData.allTexts = texts
+
+                        table.insert(detectedBrainrots, brainrotData)
+
+                        DebugLog("🎯 Brainrot détecté: " .. brainrotData.name .. " | " .. brainrotData.rarity .. " | " .. brainrotData.price)
+
+              
+              
+              
+              
+         
     -- Scanner models sur le tapis
     for _, obj in pairs(workspace:GetDescendants()) do
         if obj:IsA("Model") and obj ~= carpet then
@@ -275,7 +340,12 @@ local function DetectAllBrainrots()
                     if child:IsA("TextLabel") and child.Text ~= "" then
                         table.insert(texts, child.Text)
                     end
+                else
+                    -- Retirer les objets éloignés du cache
+                    cachedModels[obj] = nil
                 end
+            else
+                cachedModels[obj] = nil
 
                 -- Si 6 textes trouvés, c'est probablement un brainrot
                 if #texts >= 5 then -- Au moins 5 textes pour être sûr
@@ -419,6 +489,11 @@ local function AutoBuyBrainrots()
     
     -- Acheter et suivre le premier brainrot disponible
     for _, brainrot in pairs(targetBrainrots) do
+        if not AutoBuyEnabled then
+            DebugLog("⛔ Auto Buy interrompu (désactivé)")
+            return
+        end
+
         if not brainrot.stolen then -- Ne pas acheter si déjà volé
             DebugLog("🛒 Processus d'achat: " .. brainrot.name .. " (" .. brainrot.rarity .. ") - " .. brainrot.price)
             
@@ -446,38 +521,58 @@ local function AutoBuyBrainrots()
                 
                 if basePosition then
                     -- Suivre le brainrot pendant qu'il se déplace vers la base
+                    local followAborted = false
+
                     for i = 1, 20 do -- Maximum 20 secondes de suivi
-                        pcall(function()
-                            -- Vérifier si le brainrot existe encore
-                            if brainrot.object and brainrot.object.Parent then
-                                local currentBrainrotPos = nil
-                                
-                                -- Obtenir position actuelle du brainrot
-                                if brainrot.object.PrimaryPart then
-                                    currentBrainrotPos = brainrot.object.PrimaryPart.Position
-                                else
-                                    pcall(function()
-                                        local pivot = brainrot.object:GetPivot()
-                                        if pivot then currentBrainrotPos = pivot.Position end
-                                    end)
-                                end
-                                
-                                if currentBrainrotPos then
-                                    -- Se téléporter près du brainrot
-                                    local followPos = currentBrainrotPos + Vector3.new(2, 1, 2)
-                                    humanoidRootPart.CFrame = CFrame.new(followPos)
-                                    DebugLog("👣 Suivi brainrot à: " .. tostring(currentBrainrotPos))
-                                    
-                                    -- Vérifier si proche de la base
-                                    local distanceToBase = (currentBrainrotPos - basePosition).Magnitude
-                                    if distanceToBase < 20 then
-                                        DebugLog("🏠 Brainrot arrivé à la base !")
-                                        break
+                        local shouldBreak = false
+
+                        if not AutoBuyEnabled then
+                            followAborted = true
+                            shouldBreak = true
+                        else
+                            pcall(function()
+                                -- Vérifier si le brainrot existe encore
+                                if brainrot.object and brainrot.object.Parent then
+                                    local currentBrainrotPos = nil
+
+                                    -- Obtenir position actuelle du brainrot
+                                    if brainrot.object.PrimaryPart then
+                                        currentBrainrotPos = brainrot.object.PrimaryPart.Position
+                                    else
+                                        pcall(function()
+                                            local pivot = brainrot.object:GetPivot()
+                                            if pivot then currentBrainrotPos = pivot.Position end
+                                        end)
+                                    end
+
+                                    if currentBrainrotPos then
+                                        -- Se téléporter près du brainrot
+                                        local followPos = currentBrainrotPos + Vector3.new(2, 1, 2)
+                                        humanoidRootPart.CFrame = CFrame.new(followPos)
+                                        DebugLog("👣 Suivi brainrot à: " .. tostring(currentBrainrotPos))
+
+                                        -- Vérifier si proche de la base
+                                        local distanceToBase = (currentBrainrotPos - basePosition).Magnitude
+                                        if distanceToBase < 20 then
+                                            DebugLog("🏠 Brainrot arrivé à la base !")
+                                            shouldBreak = true
+                                        end
+                                    else
+                                        DebugLog("❌ Position brainrot introuvable")
+                                        shouldBreak = true
                                     end
                                 else
-                                    DebugLog("❌ Position brainrot introuvable")
-                                    break
+                                    DebugLog("❌ Brainrot disparu ou supprimé")
+                                    shouldBreak = true
                                 end
+                            end)
+                        end
+
+                        if shouldBreak then
+                            break
+                        end
+
+                        wait(1) -- Attendre 1 seconde entre chaque suivi
                             else
                                 DebugLog("❌ Brainrot disparu ou supprimé")
                                 break
@@ -486,7 +581,12 @@ local function AutoBuyBrainrots()
                         
                         task.wait(1) -- Attendre 1 seconde entre chaque suivi
                     end
-                    
+
+                    if followAborted then
+                        DebugLog("⛔ Suivi interrompu (Auto Buy désactivé)")
+                        return
+                    end
+
                     DebugLog("✅ Processus d'achat terminé pour " .. brainrot.name)
                 else
                     DebugLog("❌ Base introuvable")
