@@ -74,123 +74,188 @@ end
 workspace.DescendantAdded:Connect(TrackModel)
 workspace.DescendantRemoving:Connect(UntrackModel)
 
+-- Tables de correspondance pour éviter les chaînes de if répétitives
+local MUTATION_PATTERNS = {
+    "gold", "diamond", "rainbow", "lava", "celestial", "bloodrot", "silver"
+}
+
+local RARITY_PATTERNS = {
+    "common", "rare", "epic", "legendary", "mythic", "god", "secret"
+}
+
+local PRICE_MULTIPLIERS = {
+    K = 1000,
+    M = 1000000,
+    B = 1000000000
+}
+
+-- Conversion dédiée d'un prix texte en nombre
+local function ConvertPrice(priceText)
+    local numberStr = priceText:match("(%d+)")
+    if not numberStr then return 0 end
+    local num = tonumber(numberStr) or 0
+    for suffix, multiplier in pairs(PRICE_MULTIPLIERS) do
+        if priceText:find(suffix) then
+            return num * multiplier
+        end
+    end
+    return num
+end
+
+
+
 -- Fonction pour créer ESP Box
 local function CreateESPBox(obj, text, color)
-    pcall(function()
-        -- Supprimer ancien ESP s'il existe
-        RemoveESPBox(obj)
-        
-        local gui = Instance.new("BillboardGui")
-        gui.Name = "ESP_" .. obj.Name
-        gui.Adornee = obj
-        gui.Size = UDim2.new(0, 200, 0, 100)
-        gui.StudsOffset = Vector3.new(0, 2, 0)
-        gui.AlwaysOnTop = true
-        gui.LightInfluence = 0
-        
-        -- Cadre principal
-        local frame = Instance.new("Frame")
-        frame.Size = UDim2.new(1, 0, 1, 0)
-        frame.BackgroundTransparency = 0.7
-        frame.BackgroundColor3 = color
-        frame.BorderSizePixel = 2
-        frame.BorderColor3 = color
-        frame.Parent = gui
-        
-        -- Texte
-        local label = Instance.new("TextLabel")
-        label.Size = UDim2.new(1, 0, 1, 0)
-        label.BackgroundTransparency = 1
-        label.Text = text
-        label.TextColor3 = Color3.new(1, 1, 1)
-        label.TextScaled = true
-        label.TextStrokeTransparency = 0
-        label.TextStrokeColor3 = Color3.new(0, 0, 0)
-        label.Font = Enum.Font.GothamBold
-        label.Parent = frame
-        
-        gui.Parent = game.CoreGui
-        espBoxes[obj] = gui
+    -- Supprimer ancien ESP s'il existe
+    RemoveESPBox(obj)
+
+    local gui
+    local success, err = pcall(function()
+        gui = Instance.new("BillboardGui")
     end)
+    if not success then
+        DebugLog("Erreur création BillboardGui: " .. tostring(err), "error")
+        return
+    end
+
+    gui.Name = "ESP_" .. obj.Name
+    gui.Adornee = obj
+    gui.Size = UDim2.new(0, 200, 0, 100)
+    gui.StudsOffset = Vector3.new(0, 2, 0)
+    gui.AlwaysOnTop = true
+    gui.LightInfluence = 0
+
+    -- Cadre principal
+    local frame
+    success, err = pcall(function()
+        frame = Instance.new("Frame")
+    end)
+    if not success then
+        DebugLog("Erreur création Frame: " .. tostring(err), "error")
+        return
+    end
+
+    frame.Size = UDim2.new(1, 0, 1, 0)
+    frame.BackgroundTransparency = 0.7
+    frame.BackgroundColor3 = color
+    frame.BorderSizePixel = 2
+    frame.BorderColor3 = color
+    frame.Parent = gui
+
+    -- Texte
+    local label
+    success, err = pcall(function()
+        label = Instance.new("TextLabel")
+    end)
+    if not success then
+        DebugLog("Erreur création TextLabel: " .. tostring(err), "error")
+        return
+    end
+
+    label.Size = UDim2.new(1, 0, 1, 0)
+    label.BackgroundTransparency = 1
+    label.Text = text
+    label.TextColor3 = Color3.new(1, 1, 1)
+    label.TextScaled = true
+    label.TextStrokeTransparency = 0
+    label.TextStrokeColor3 = Color3.new(0, 0, 0)
+    label.Font = Enum.Font.GothamBold
+    label.Parent = frame
+
+    local parentSuccess, parentErr = pcall(function()
+        gui.Parent = game.CoreGui
+    end)
+    if not parentSuccess then
+        DebugLog("Erreur assignation parent GUI: " .. tostring(parentErr), "error")
+        return
+    end
+
+    espBoxes[obj] = gui
 end
 
 -- Fonction pour supprimer ESP Box
 local function RemoveESPBox(obj)
-    pcall(function()
-        if espBoxes[obj] then
+    if espBoxes[obj] then
+        local success, err = pcall(function()
             espBoxes[obj]:Destroy()
-            espBoxes[obj] = nil
+        end)
+        if not success then
+            DebugLog("Erreur destruction ESPBox: " .. tostring(err), "error")
         end
-    end)
+        espBoxes[obj] = nil
+    end
 end
 
--- Fonction pour analyser les 6 textes d'un brainrot
+-- L'ordre de priorité des tests est important :
+-- mutation > rareté > revenu > prix > stolen > nom
 local function ParseBrainrotTexts(texts)
     local brainrot = {
         mutation = "None",
-        rarity = "Unknown", 
+        rarity = "Unknown",
         revenue = "N/A",
         price = "N/A",
         priceNumber = 0,
         stolen = false,
         name = "Unknown"
     }
-    
+
     DebugLog("📝 Parsing textes: " .. table.concat(texts, ", "))
-    
+
     for _, text in pairs(texts) do
         local textLower = text:lower()
-        
-        -- 1. Mutations (Gold, Diamond, etc.)
-        if text:find("Gold") or text:find("Diamond") or text:find("Rainbow") or 
-           text:find("Lava") or text:find("Celestial") or text:find("Bloodrot") or text:find("Silver") then
-            brainrot.mutation = text
-            DebugLog("✨ Mutation trouvée: " .. text)
-            
-        -- 2. Rareté
-        elseif text == "Common" or text == "Rare" or text == "Epic" or 
-               text == "Legendary" or text == "Mythic" or text:find("God") or text:find("Secret") then
-            brainrot.rarity = text
-            DebugLog("🎨 Rareté trouvée: " .. text)
-            
-        -- 3. Génération d'argent ($/s)
-        elseif text:find("$/s") or text:find("%$%d+/s") then
-            brainrot.revenue = text
-            DebugLog("💸 Revenu trouvé: " .. text)
-            
-        -- 4. Prix d'achat ($1K, $500, etc.)
-        elseif text:find("%$") and not text:find("/s") and (text:find("K") or text:find("M") or text:find("B") or text:match("%$%d+")) then
-            brainrot.price = text
-            DebugLog("💰 Prix trouvé: " .. text)
-            -- Convertir en nombre
-            local numberStr = text:match("(%d+)")
-            if numberStr then
-                local num = tonumber(numberStr) or 0
-                if text:find("K") then num = num * 1000
-                elseif text:find("M") then num = num * 1000000
-                elseif text:find("B") then num = num * 1000000000 end
-                brainrot.priceNumber = num
-            end
-            
-        -- 5. STOLEN
-        elseif textLower:find("stolen") then
-            brainrot.stolen = true
-            DebugLog("🚨 STOLEN détecté")
-            
-        -- 6. NOM - Tout ce qui reste et qui semble être un nom
-        else
-            -- Le nom est probablement ce qui ne rentre pas dans les autres catégories
-            -- et qui contient des lettres/mots normaux
-            if text ~= "" and not text:find("%$") and not text:find("/s") and 
-               not text:find("Gold") and not text:find("Diamond") and not text:find("Rainbow") and
-               not (text == "Common" or text == "Rare" or text == "Epic" or text == "Legendary" or text == "Mythic") and
-               not textLower:find("stolen") and not text:find("God") and not text:find("Secret") then
-                brainrot.name = text
-                DebugLog("📝 Nom trouvé: " .. text)
+        local processed = false
+
+        -- 1. Mutations
+        for _, pattern in ipairs(MUTATION_PATTERNS) do
+            if textLower:find(pattern) then
+                brainrot.mutation = text
+                DebugLog("✨ Mutation trouvée: " .. text)
+                processed = true
+                break
             end
         end
+
+        -- 2. Rareté
+        if not processed then
+            for _, pattern in ipairs(RARITY_PATTERNS) do
+                if textLower:find(pattern) then
+                    brainrot.rarity = text
+                    DebugLog("🎨 Rareté trouvée: " .. text)
+                    processed = true
+                    break
+                end
+            end
+        end
+
+        -- 3. Génération d'argent ($/s)
+        if not processed and (text:find("$/s") or text:find("%$%d+/s")) then
+            brainrot.revenue = text
+            DebugLog("💸 Revenu trouvé: " .. text)
+            processed = true
+        end
+
+        -- 4. Prix d'achat ($1K, $500, etc.)
+        if not processed and text:find("%$") and not text:find("/s") then
+            brainrot.price = text
+            brainrot.priceNumber = ConvertPrice(text)
+            DebugLog("💰 Prix trouvé: " .. text)
+            processed = true
+        end
+
+        -- 5. STOLEN
+        if not processed and textLower:find("stolen") then
+            brainrot.stolen = true
+            DebugLog("🚨 STOLEN détecté")
+            processed = true
+        end
+
+        -- 6. NOM - Tout ce qui reste et qui semble être un nom
+        if not processed and text ~= "" and not text:find("%$") and not text:find("/s") then
+            brainrot.name = text
+            DebugLog("📝 Nom trouvé: " .. text)
+        end
     end
-    
+
     DebugLog("📊 Résultat parsing: " .. brainrot.name .. " | " .. brainrot.rarity .. " | " .. brainrot.price .. " | " .. brainrot.mutation)
     return brainrot
 end
@@ -244,6 +309,36 @@ local function DetectAllBrainrots()
                         table.insert(detectedBrainrots, brainrotData)
 
                         DebugLog("🎯 Brainrot détecté: " .. brainrotData.name .. " | " .. brainrotData.rarity .. " | " .. brainrotData.price)
+
+              
+              
+              
+              
+         
+    -- Scanner models sur le tapis
+    for _, obj in pairs(workspace:GetDescendants()) do
+        if obj:IsA("Model") and obj ~= carpet then
+            local modelPos = nil
+            if obj.PrimaryPart then
+                modelPos = obj.PrimaryPart.Position
+            else
+                local pivot
+                local success, err = pcall(function()
+                    pivot = obj:GetPivot()
+                end)
+                if not success then
+                    DebugLog("Erreur GetPivot sur " .. obj.Name .. ": " .. tostring(err), "warn")
+                elseif pivot then
+                    modelPos = pivot.Position
+                end
+            end
+
+            if modelPos and (modelPos - carpetPos).Magnitude < 100 then
+                -- Collecter tous les textes
+                local texts = {}
+                for _, child in pairs(obj:GetDescendants()) do
+                    if child:IsA("TextLabel") and child.Text ~= "" then
+                        table.insert(texts, child.Text)
                     end
                 else
                     -- Retirer les objets éloignés du cache
@@ -251,8 +346,20 @@ local function DetectAllBrainrots()
                 end
             else
                 cachedModels[obj] = nil
+
+                -- Si 6 textes trouvés, c'est probablement un brainrot
+                if #texts >= 5 then -- Au moins 5 textes pour être sûr
+                    local brainrotData = ParseBrainrotTexts(texts)
+                    brainrotData.object = obj
+                    brainrotData.position = modelPos
+                    brainrotData.allTexts = texts
+
+                    table.insert(detectedBrainrots, brainrotData)
+
+                    DebugLog("🎯 Brainrot détecté: " .. brainrotData.name .. " | " .. brainrotData.rarity .. " | " .. brainrotData.price)
+                end
             end
-        end)
+        end
     end
     
     DebugLog("📊 Total brainrots détectés: " .. #detectedBrainrots)
@@ -398,15 +505,15 @@ local function AutoBuyBrainrots()
                 DebugLog("📍 Étape 1: Se téléporter à côté du brainrot")
                 local nearPosition = brainrot.position + Vector3.new(3, 2, 3) -- Position à côté
                 humanoidRootPart.CFrame = CFrame.new(nearPosition)
-                wait(1)
+                task.wait(1)
                 
                 -- Étape 2: Essayer d'acheter avec E
                 DebugLog("💰 Étape 2: Tentative d'achat avec E")
                 local VirtualInputManager = game:GetService("VirtualInputManager")
                 VirtualInputManager:SendKeyEvent(true, Enum.KeyCode.E, false, game)
-                wait(0.1)
+                task.wait(0.1)
                 VirtualInputManager:SendKeyEvent(false, Enum.KeyCode.E, false, game)
-                wait(1)
+                task.wait(1)
                 
                 -- Étape 3: Suivre le brainrot vers la base
                 DebugLog("🏃 Étape 3: Suivi du brainrot vers la base")
@@ -466,6 +573,13 @@ local function AutoBuyBrainrots()
                         end
 
                         wait(1) -- Attendre 1 seconde entre chaque suivi
+                            else
+                                DebugLog("❌ Brainrot disparu ou supprimé")
+                                break
+                            end
+                        end)
+                        
+                        task.wait(1) -- Attendre 1 seconde entre chaque suivi
                     end
 
                     if followAborted then
@@ -497,7 +611,7 @@ local ESPToggle = ESPTab:CreateToggle({
          spawn(function()
             while ESPEnabled do
                UpdateESP()
-               wait(3) -- Mise à jour toutes les 3 secondes
+               task.wait(3) -- Mise à jour toutes les 3 secondes
             end
          end)
       else
@@ -537,7 +651,7 @@ local AutoBuyToggle = AutoBuyTab:CreateToggle({
          spawn(function()
             while AutoBuyEnabled do
                AutoBuyBrainrots()
-               wait(10) -- Vérifier toutes les 10 secondes pour éviter spam
+               task.wait(10) -- Vérifier toutes les 10 secondes pour éviter spam
             end
          end)
       else
