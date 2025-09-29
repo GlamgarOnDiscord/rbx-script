@@ -602,7 +602,27 @@ local function FindPlayerBase()
     return nil
 end
 
--- Fonction Auto Buy avec suivi amélioré
+-- Fonction pour trouver les RemoteEvents d'achat
+local function FindBuyRemoteEvents()
+    local buyEvents = {}
+    
+    -- Chercher dans ReplicatedStorage
+    for _, obj in pairs(game.ReplicatedStorage:GetDescendants()) do
+        pcall(function()
+            if obj:IsA("RemoteEvent") then
+                local name = obj.Name:lower()
+                if name:find("buy") or name:find("purchase") or name:find("unlock") or name:find("claim") then
+                    table.insert(buyEvents, obj)
+                    DebugLog("🔍 RemoteEvent d'achat trouvé: " .. obj.Name .. " | " .. obj:GetFullName())
+                end
+            end
+        end)
+    end
+    
+    return buyEvents
+end
+
+-- Fonction Auto Buy avec gestion d'erreurs améliorée
 local function AutoBuyBrainrots()
     if not AutoBuyEnabled then return end
     
@@ -658,19 +678,56 @@ local function AutoBuyBrainrots()
                 
                 -- Étape 1: Aller à côté du brainrot
                 DebugLog("📍 Étape 1: Se téléporter à côté du brainrot")
-                local nearPosition = brainrot.position + Vector3.new(3, 2, 3)
-                humanoidRootPart.CFrame = CFrame.new(nearPosition)
+                pcall(function()
+                    local nearPosition = brainrot.position + Vector3.new(3, 2, 3)
+                    humanoidRootPart.CFrame = CFrame.new(nearPosition)
+                end)
                 task.wait(1)
                 
-                -- Étape 2: Essayer d'acheter avec E
-                DebugLog("💰 Étape 2: Tentative d'achat avec E")
-                local VirtualInputManager = game:GetService("VirtualInputManager")
-                VirtualInputManager:SendKeyEvent(true, Enum.KeyCode.E, false, game)
-                task.wait(0.1)
-                VirtualInputManager:SendKeyEvent(false, Enum.KeyCode.E, false, game)
+                -- Étape 2: Essayer plusieurs méthodes d'achat
+                DebugLog("💰 Étape 2: Tentatives d'achat multiples")
+                
+                -- Méthode 1: Touche E
+                pcall(function()
+                    local VirtualInputManager = game:GetService("VirtualInputManager")
+                    VirtualInputManager:SendKeyEvent(true, Enum.KeyCode.E, false, game)
+                    task.wait(0.1)
+                    VirtualInputManager:SendKeyEvent(false, Enum.KeyCode.E, false, game)
+                end)
+                task.wait(0.5)
+                
+                -- Méthode 2: RemoteEvents d'achat
+                local buyEvents = FindBuyRemoteEvents()
+                for _, event in pairs(buyEvents) do
+                    pcall(function()
+                        -- Essayer différents paramètres
+                        event:FireServer()
+                        task.wait(0.2)
+                        event:FireServer(brainrot.object)
+                        task.wait(0.2)
+                        event:FireServer(brainrot.name)
+                        task.wait(0.2)
+                        event:FireServer(player)
+                        task.wait(0.2)
+                    end)
+                end
+                
+                -- Méthode 3: Chercher ClickDetector ou ProximityPrompt
+                pcall(function()
+                    for _, child in pairs(brainrot.object:GetDescendants()) do
+                        if child:IsA("ClickDetector") then
+                            DebugLog("🖱️ ClickDetector trouvé, tentative de clic")
+                            fireclickdetector(child)
+                        elseif child:IsA("ProximityPrompt") then
+                            DebugLog("🚪 ProximityPrompt trouvé, tentative d'activation")
+                            fireproximityprompt(child)
+                        end
+                    end
+                end)
+                
                 task.wait(1)
                 
-                -- Étape 3: Suivre le brainrot vers la base
+                -- Étape 3: Suivre le brainrot vers la base (avec gestion d'erreurs)
                 DebugLog("🏃 Étape 3: Suivi du brainrot vers la base")
                 local basePosition = FindPlayerBase()
                 
@@ -681,7 +738,7 @@ local function AutoBuyBrainrots()
                             return
                         end
                         
-                        pcall(function()
+                        local success, err = pcall(function()
                             if brainrot.object and brainrot.object.Parent then
                                 local currentBrainrotPos = nil
                                 
@@ -707,6 +764,10 @@ local function AutoBuyBrainrots()
                                 end
                             end
                         end)
+                        
+                        if not success then
+                            DebugLog("⚠️ Erreur suivi: " .. tostring(err), "warn")
+                        end
                         
                         task.wait(1)
                     end
@@ -1319,7 +1380,48 @@ local TestParsingButton = DebugTab:CreateButton({
    end,
 })
 
--- 7. Scan complet Workspace
+-- 8. Debug RemoteEvents d'achat
+local RemoteEventsButton = DebugTab:CreateButton({
+   Name = "🔧 Debug RemoteEvents Achat",
+   Callback = function()
+      DebugLog("=== 🔧 DEBUG REMOTEEVENTS ACHAT ===")
+      
+      local allEvents = {}
+      local buyEvents = {}
+      
+      -- Scanner ReplicatedStorage
+      for _, obj in pairs(game.ReplicatedStorage:GetDescendants()) do
+         pcall(function()
+            if obj:IsA("RemoteEvent") then
+               table.insert(allEvents, obj)
+               
+               local name = obj.Name:lower()
+               if name:find("buy") or name:find("purchase") or name:find("unlock") or name:find("claim") or name:find("obtain") then
+                  table.insert(buyEvents, obj)
+                  DebugLog("🛒 EVENT ACHAT: " .. obj.Name .. " | " .. obj:GetFullName())
+               end
+            end
+         end)
+      end
+      
+      DebugLog("📊 Total RemoteEvents: " .. #allEvents)
+      DebugLog("🛒 Events d'achat trouvés: " .. #buyEvents)
+      
+      -- Lister tous les RemoteEvents
+      DebugLog("📝 LISTE COMPLÈTE DES REMOTEEVENTS:")
+      for i, event in pairs(allEvents) do
+         if i <= 20 then -- Limiter l'affichage
+            DebugLog("  " .. i .. ". " .. event.Name .. " | " .. event:GetFullName())
+         end
+      end
+      
+      if #allEvents > 20 then
+         DebugLog("  ... et " .. (#allEvents - 20) .. " autres")
+      end
+      
+      DebugLog("=== FIN DEBUG REMOTEEVENTS ===")
+   end,
+})
 local FullWorkspaceScanButton = DebugTab:CreateButton({
    Name = "🌍 Scan Complet Workspace",
    Callback = function()
