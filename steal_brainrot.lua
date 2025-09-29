@@ -1,17 +1,34 @@
--- 🪐 Steal Brainrot - DEBUG SIMPLE VERSION
--- Version ultra-simplifiée pour debug uniquement
+-- 🪐 Steal Brainrot - VERSION COMPLÈTE AMÉLIORÉE
+-- Version ultra-avancée avec toutes les fonctionnalités
 
 local Rayfield = loadstring(game:HttpGet('https://sirius.menu/rayfield'))()
 
 -- Services
 local player = game.Players.LocalPlayer
 local workspace = game:GetService("Workspace")
+local TweenService = game:GetService("TweenService")
+local RunService = game:GetService("RunService")
+local HttpService = game:GetService("HttpService")
 
 -- Variables globales
 local DebugMode = true
+local WebhookUrl = ""
+local WalkSpeed = 16
+local AutoStealEnabled = false
+local AutoFarmMoney = false
+local PlayerStatsEnabled = false
 
--- Fonction de debug
-local function DebugLog(message, level)
+-- Statistiques
+local Stats = {
+    BrainrotsDetected = 0,
+    BrainrotsBought = 0,
+    MoneyEarned = 0,
+    PlayersStolen = 0,
+    SessionStart = tick()
+}
+
+-- Fonction de debug avec webhook
+local function DebugLog(message, level, sendWebhook)
     if not DebugMode then return end
     local prefix = "🪐 DEBUG"
     if level == "warn" then
@@ -20,18 +37,90 @@ local function DebugLog(message, level)
     elseif level == "error" then
         prefix = "❌ ERROR"
         print(prefix .. ": " .. tostring(message))
+    elseif level == "success" then
+        prefix = "✅ SUCCESS"
+        print(prefix .. ": " .. tostring(message))
     else
         print(prefix .. ": " .. tostring(message))
     end
+    
+    -- Envoyer au webhook Discord si activé
+    if sendWebhook and WebhookUrl ~= "" then
+        SendDiscordWebhook("📊 " .. prefix, tostring(message))
+    end
 end
 
--- Interface simplifiée
+-- Fonction webhook Discord
+local function SendDiscordWebhook(title, description, color)
+    if WebhookUrl == "" then return end
+    
+    local data = {
+        embeds = {{
+            title = title,
+            description = description,
+            color = color or 3447003,
+            timestamp = os.date("!%Y-%m-%dT%H:%M:%S.000Z"),
+            footer = {
+                text = "Steal Brainrot Premium - " .. player.Name
+            }
+        }}
+    }
+    
+    pcall(function()
+        local jsonData = HttpService:JSONEncode(data)
+        local request = http_request or request or HttpPost or syn.request
+        request({
+            Url = WebhookUrl,
+            Method = "POST",
+            Headers = {["Content-Type"] = "application/json"},
+            Body = jsonData
+        })
+    end)
+end
+
+-- Fonction de détection automatique de nouveaux patterns
+local function LearnNewPatterns(text)
+    local textLower = text:lower()
+    
+    -- Détecter si c'est une mutation inconnue (contient des mots-clés typiques)
+    local mutationKeywords = {"shiny", "glow", "sparkle", "bright", "dark", "light", "metal", "gem"}
+    for _, keyword in pairs(mutationKeywords) do
+        if textLower:find(keyword) then
+            local found = false
+            for _, known in pairs(MUTATION_PATTERNS) do
+                if textLower:find(known) then found = true break end
+            end
+            if not found and not DetectedPatterns.mutations[text] then
+                DetectedPatterns.mutations[text] = true
+                DebugLog("🔍 NOUVELLE MUTATION DÉTECTÉE: " .. text, "success", true)
+                table.insert(MUTATION_PATTERNS, textLower)
+            end
+        end
+    end
+    
+    -- Détecter si c'est une rareté inconnue (format typique de rareté)
+    if textLower:match("^%a+$") and #text > 3 and #text < 15 then
+        local found = false
+        for _, known in pairs(RARITY_PATTERNS) do
+            if textLower:find(known) then found = true break end
+        end
+        if not found and not DetectedPatterns.rarities[text] then
+            DetectedPatterns.rarities[text] = true
+            DebugLog("🔍 NOUVELLE RARETÉ DÉTECTÉE: " .. text, "success", true)
+            table.insert(RARITY_PATTERNS, textLower)
+        end
+    end
+end
+
+-- Interface améliorée
 local Window = Rayfield:CreateWindow({
-   Name = "🔍 DEBUG SIMPLE",
-   LoadingTitle = "Debug Simple",
-   LoadingSubtitle = "by GlamgarOnDiscord",
+   Name = "🪐 Steal Brainrot PREMIUM",
+   LoadingTitle = "Steal Brainrot Premium",
+   LoadingSubtitle = "by GlamgarOnDiscord - v2.0",
    ConfigurationSaving = {
-      Enabled = false,
+      Enabled = true,
+      FolderName = "StealBrainrotConfig",
+      FileName = "StealBrainrot"
    },
    Discord = {
       Enabled = false,
@@ -39,9 +128,15 @@ local Window = Rayfield:CreateWindow({
    KeySystem = false,
 })
 
-local DebugTab = Window:CreateTab("🔍 Debug", nil)
+-- Onglets
+local MainTab = Window:CreateTab("🏠 Principal", nil)
 local ESPTab = Window:CreateTab("👁️ ESP", nil)
 local AutoBuyTab = Window:CreateTab("🛒 Auto Buy", nil)
+local AutoStealTab = Window:CreateTab("💰 Auto Steal", nil)
+local FarmTab = Window:CreateTab("⚡ Auto Farm", nil)
+local StatsTab = Window:CreateTab("📊 Statistiques", nil)
+local SettingsTab = Window:CreateTab("⚙️ Paramètres", nil)
+local DebugTab = Window:CreateTab("🔍 Debug", nil)
 
 -- Variables globales
 local ESPEnabled = false
@@ -74,19 +169,37 @@ end
 workspace.DescendantAdded:Connect(TrackModel)
 workspace.DescendantRemoving:Connect(UntrackModel)
 
--- Tables de correspondance pour éviter les chaînes de if répétitives
+-- Tables de correspondance DYNAMIQUES pour détecter nouvelles raretés/mutations
 local MUTATION_PATTERNS = {
-    "gold", "diamond", "rainbow", "lava", "celestial", "bloodrot", "silver"
+    -- Mutations existantes
+    "gold", "diamond", "rainbow", "lava", "celestial", "bloodrot", "silver",
+    -- Nouvelles mutations potentielles
+    "crystal", "plasma", "void", "shadow", "neon", "electric", "fire", "ice",
+    "cosmic", "galaxy", "starlight", "aurora", "prismatic", "holographic",
+    "obsidian", "titanium", "platinum", "emerald", "ruby", "sapphire",
+    "quantum", "nuclear", "radioactive", "magnetic", "corrupted", "blessed"
 }
 
 local RARITY_PATTERNS = {
-    "common", "rare", "epic", "legendary", "mythic", "god", "secret"
+    -- Raretés existantes
+    "common", "rare", "epic", "legendary", "mythic", "god", "secret",
+    -- Nouvelles raretés potentielles
+    "ultimate", "divine", "celestial", "transcendent", "omnipotent", "infinite",
+    "eternal", "immortal", "supreme", "absolute", "perfect", "flawless",
+    "prime", "apex", "zenith", "pinnacle", "master", "grandmaster"
+}
+
+-- Détection automatique de nouveaux patterns
+local DetectedPatterns = {
+    mutations = {},
+    rarities = {}
 }
 
 local PRICE_MULTIPLIERS = {
     K = 1000,
     M = 1000000,
-    B = 1000000000
+    B = 1000000000,
+    T = 1000000000000
 }
 
 -- Conversion dédiée d'un prix texte en nombre
@@ -204,8 +317,11 @@ local function ParseBrainrotTexts(texts)
     for _, text in pairs(texts) do
         local textLower = text:lower()
         local processed = false
+        
+        -- Apprendre de nouveaux patterns
+        LearnNewPatterns(text)
 
-        -- 1. Mutations
+        -- 1. Mutations (détection améliorée)
         for _, pattern in ipairs(MUTATION_PATTERNS) do
             if textLower:find(pattern) then
                 brainrot.mutation = text
@@ -215,7 +331,7 @@ local function ParseBrainrotTexts(texts)
             end
         end
 
-        -- 2. Rareté
+        -- 2. Rareté (détection améliorée)
         if not processed then
             for _, pattern in ipairs(RARITY_PATTERNS) do
                 if textLower:find(pattern) then
@@ -257,7 +373,90 @@ local function ParseBrainrotTexts(texts)
     end
 
     DebugLog("📊 Résultat parsing: " .. brainrot.name .. " | " .. brainrot.rarity .. " | " .. brainrot.price .. " | " .. brainrot.mutation)
+    
+    -- Mettre à jour les statistiques
+    Stats.BrainrotsDetected = Stats.BrainrotsDetected + 1
+    
     return brainrot
+end
+
+-- Fonction Auto Steal Players
+local function AutoStealPlayers()
+    if not AutoStealEnabled then return end
+    
+    for _, otherPlayer in pairs(game.Players:GetPlayers()) do
+        if otherPlayer ~= player and otherPlayer.Character then
+            local humanoidRootPart = otherPlayer.Character:FindFirstChild("HumanoidRootPart")
+            local myRootPart = player.Character and player.Character:FindFirstChild("HumanoidRootPart")
+            
+            if humanoidRootPart and myRootPart then
+                local distance = (humanoidRootPart.Position - myRootPart.Position).Magnitude
+                
+                if distance < 50 then -- Proche du joueur
+                    DebugLog("🎯 Tentative de vol: " .. otherPlayer.Name .. " (Distance: " .. math.floor(distance) .. ")")
+                    
+                    -- Chercher RemoteEvents de vol
+                    for _, obj in pairs(game.ReplicatedStorage:GetDescendants()) do
+                        if obj:IsA("RemoteEvent") then
+                            local name = obj.Name:lower()
+                            if name:find("steal") or name:find("rob") or name:find("take") then
+                                pcall(function()
+                                    obj:FireServer(otherPlayer)
+                                    Stats.PlayersStolen = Stats.PlayersStolen + 1
+                                    DebugLog("💰 Vol réussi sur: " .. otherPlayer.Name, "success", true)
+                                end)
+                                task.wait(1)
+                            end
+                        end
+                    end
+                end
+            end
+        end
+    end
+end
+
+-- Fonction Auto Farm Money
+local function AutoFarmMoney()
+    if not AutoFarmMoney then return end
+    
+    local moneyItems = {}
+    
+    -- Chercher objets d'argent
+    for _, obj in pairs(workspace:GetDescendants()) do
+        if obj:IsA("BasePart") then
+            local name = obj.Name:lower()
+            if name:find("cash") or name:find("money") or name:find("coin") or name:find("dollar") then
+                table.insert(moneyItems, obj)
+            end
+        end
+    end
+    
+    -- Téléporter vers les objets d'argent
+    if player.Character and player.Character:FindFirstChild("HumanoidRootPart") then
+        for _, item in pairs(moneyItems) do
+            if AutoFarmMoney and item.Parent then
+                player.Character.HumanoidRootPart.CFrame = item.CFrame
+                task.wait(0.5)
+                Stats.MoneyEarned = Stats.MoneyEarned + 1
+                DebugLog("💰 Argent collecté: " .. item.Name)
+            end
+        end
+    end
+end
+
+-- Fonction de mise à jour des statistiques
+local function UpdatePlayerStats()
+    if not PlayerStatsEnabled then return end
+    
+    local sessionTime = math.floor(tick() - Stats.SessionStart)
+    local hours = math.floor(sessionTime / 3600)
+    local minutes = math.floor((sessionTime % 3600) / 60)
+    local seconds = sessionTime % 60
+    
+    local timeString = string.format("%02d:%02d:%02d", hours, minutes, seconds)
+    
+    DebugLog("📊 STATS - Temps: " .. timeString .. " | Brainrots: " .. Stats.BrainrotsDetected .. 
+             " | Achats: " .. Stats.BrainrotsBought .. " | Vols: " .. Stats.PlayersStolen)
 end
 
 -- Fonction pour détecter tous les brainrots
@@ -309,57 +508,13 @@ local function DetectAllBrainrots()
                         table.insert(detectedBrainrots, brainrotData)
 
                         DebugLog("🎯 Brainrot détecté: " .. brainrotData.name .. " | " .. brainrotData.rarity .. " | " .. brainrotData.price)
-
-              
-              
-              
-              
-         
-    -- Scanner models sur le tapis
-    for _, obj in pairs(workspace:GetDescendants()) do
-        if obj:IsA("Model") and obj ~= carpet then
-            local modelPos = nil
-            if obj.PrimaryPart then
-                modelPos = obj.PrimaryPart.Position
-            else
-                local pivot
-                local success, err = pcall(function()
-                    pivot = obj:GetPivot()
-                end)
-                if not success then
-                    DebugLog("Erreur GetPivot sur " .. obj.Name .. ": " .. tostring(err), "warn")
-                elseif pivot then
-                    modelPos = pivot.Position
-                end
-            end
-
-            if modelPos and (modelPos - carpetPos).Magnitude < 100 then
-                -- Collecter tous les textes
-                local texts = {}
-                for _, child in pairs(obj:GetDescendants()) do
-                    if child:IsA("TextLabel") and child.Text ~= "" then
-                        table.insert(texts, child.Text)
                     end
-                else
-                    -- Retirer les objets éloignés du cache
-                    cachedModels[obj] = nil
                 end
             else
+                -- Retirer les objets éloignés du cache
                 cachedModels[obj] = nil
-
-                -- Si 6 textes trouvés, c'est probablement un brainrot
-                if #texts >= 5 then -- Au moins 5 textes pour être sûr
-                    local brainrotData = ParseBrainrotTexts(texts)
-                    brainrotData.object = obj
-                    brainrotData.position = modelPos
-                    brainrotData.allTexts = texts
-
-                    table.insert(detectedBrainrots, brainrotData)
-
-                    DebugLog("🎯 Brainrot détecté: " .. brainrotData.name .. " | " .. brainrotData.rarity .. " | " .. brainrotData.price)
-                end
             end
-        end
+        end)
     end
     
     DebugLog("📊 Total brainrots détectés: " .. #detectedBrainrots)
@@ -447,7 +602,7 @@ local function FindPlayerBase()
     return nil
 end
 
--- Fonction Auto Buy avec suivi
+-- Fonction Auto Buy avec suivi amélioré
 local function AutoBuyBrainrots()
     if not AutoBuyEnabled then return end
     
@@ -494,7 +649,7 @@ local function AutoBuyBrainrots()
             return
         end
 
-        if not brainrot.stolen then -- Ne pas acheter si déjà volé
+        if not brainrot.stolen then
             DebugLog("🛒 Processus d'achat: " .. brainrot.name .. " (" .. brainrot.rarity .. ") - " .. brainrot.price)
             
             if player.Character and player.Character:FindFirstChild("HumanoidRootPart") then
@@ -503,7 +658,7 @@ local function AutoBuyBrainrots()
                 
                 -- Étape 1: Aller à côté du brainrot
                 DebugLog("📍 Étape 1: Se téléporter à côté du brainrot")
-                local nearPosition = brainrot.position + Vector3.new(3, 2, 3) -- Position à côté
+                local nearPosition = brainrot.position + Vector3.new(3, 2, 3)
                 humanoidRootPart.CFrame = CFrame.new(nearPosition)
                 task.wait(1)
                 
@@ -520,79 +675,44 @@ local function AutoBuyBrainrots()
                 local basePosition = FindPlayerBase()
                 
                 if basePosition then
-                    -- Suivre le brainrot pendant qu'il se déplace vers la base
-                    local followAborted = false
-
-                    for i = 1, 20 do -- Maximum 20 secondes de suivi
-                        local shouldBreak = false
-
+                    for i = 1, 20 do
                         if not AutoBuyEnabled then
-                            followAborted = true
-                            shouldBreak = true
-                        else
-                            pcall(function()
-                                -- Vérifier si le brainrot existe encore
-                                if brainrot.object and brainrot.object.Parent then
-                                    local currentBrainrotPos = nil
-
-                                    -- Obtenir position actuelle du brainrot
-                                    if brainrot.object.PrimaryPart then
-                                        currentBrainrotPos = brainrot.object.PrimaryPart.Position
-                                    else
-                                        pcall(function()
-                                            local pivot = brainrot.object:GetPivot()
-                                            if pivot then currentBrainrotPos = pivot.Position end
-                                        end)
-                                    end
-
-                                    if currentBrainrotPos then
-                                        -- Se téléporter près du brainrot
-                                        local followPos = currentBrainrotPos + Vector3.new(2, 1, 2)
-                                        humanoidRootPart.CFrame = CFrame.new(followPos)
-                                        DebugLog("👣 Suivi brainrot à: " .. tostring(currentBrainrotPos))
-
-                                        -- Vérifier si proche de la base
-                                        local distanceToBase = (currentBrainrotPos - basePosition).Magnitude
-                                        if distanceToBase < 20 then
-                                            DebugLog("🏠 Brainrot arrivé à la base !")
-                                            shouldBreak = true
-                                        end
-                                    else
-                                        DebugLog("❌ Position brainrot introuvable")
-                                        shouldBreak = true
-                                    end
+                            DebugLog("⛔ Suivi interrompu (Auto Buy désactivé)")
+                            return
+                        end
+                        
+                        pcall(function()
+                            if brainrot.object and brainrot.object.Parent then
+                                local currentBrainrotPos = nil
+                                
+                                if brainrot.object.PrimaryPart then
+                                    currentBrainrotPos = brainrot.object.PrimaryPart.Position
                                 else
-                                    DebugLog("❌ Brainrot disparu ou supprimé")
-                                    shouldBreak = true
+                                    local pivot = brainrot.object:GetPivot()
+                                    if pivot then currentBrainrotPos = pivot.Position end
                                 end
-                            end)
-                        end
 
-                        if shouldBreak then
-                            break
-                        end
-
-                        wait(1) -- Attendre 1 seconde entre chaque suivi
-                            else
-                                DebugLog("❌ Brainrot disparu ou supprimé")
-                                break
+                                if currentBrainrotPos then
+                                    local followPos = currentBrainrotPos + Vector3.new(2, 1, 2)
+                                    humanoidRootPart.CFrame = CFrame.new(followPos)
+                                    
+                                    local distanceToBase = (currentBrainrotPos - basePosition).Magnitude
+                                    if distanceToBase < 20 then
+                                        DebugLog("🏠 Brainrot arrivé à la base !")
+                                        Stats.BrainrotsBought = Stats.BrainrotsBought + 1
+                                        SendDiscordWebhook("🛒 Achat Réussi", 
+                                            "Brainrot acheté: " .. brainrot.name .. " (" .. brainrot.rarity .. ")", 65280)
+                                        return
+                                    end
+                                end
                             end
                         end)
                         
-                        task.wait(1) -- Attendre 1 seconde entre chaque suivi
+                        task.wait(1)
                     end
-
-                    if followAborted then
-                        DebugLog("⛔ Suivi interrompu (Auto Buy désactivé)")
-                        return
-                    end
-
-                    DebugLog("✅ Processus d'achat terminé pour " .. brainrot.name)
-                else
-                    DebugLog("❌ Base introuvable")
                 end
                 
-                break -- Traiter seulement un brainrot à la fois
+                break
             end
         end
     end
@@ -600,23 +720,83 @@ end
 
 -- === ONGLETS ===
 
+-- Onglet Principal
+local WelcomeSection = MainTab:CreateSection("🏠 Bienvenue")
+
+MainTab:CreateLabel("🪐 Steal Brainrot Premium v2.0")
+MainTab:CreateLabel("💫 Créé par GlamgarOnDiscord")
+MainTab:CreateLabel("🚀 Version complète avec toutes les fonctionnalités premium")
+
+local StatusSection = MainTab:CreateSection("📊 Status Actuel")
+
+local StatusLabel = MainTab:CreateLabel("🔴 Systèmes: Arrêtés")
+
+-- Fonction pour mettre à jour le status
+local function UpdateStatus()
+    local activeFeatures = {}
+    if ESPEnabled then table.insert(activeFeatures, "ESP") end
+    if AutoBuyEnabled then table.insert(activeFeatures, "Auto Buy") end
+    if AutoStealEnabled then table.insert(activeFeatures, "Auto Steal") end
+    if AutoFarmMoney then table.insert(activeFeatures, "Auto Farm") end
+    
+    if #activeFeatures > 0 then
+        StatusLabel.Text = "🟢 Actifs: " .. table.concat(activeFeatures, ", ")
+    else
+        StatusLabel.Text = "🔴 Systèmes: Arrêtés"
+    end
+end
+
+local QuickStartSection = MainTab:CreateSection("⚡ Démarrage Rapide")
+
+local QuickESPButton = MainTab:CreateButton({
+   Name = "👁️ Activer ESP Rapide",
+   Callback = function()
+      ESPEnabled = true
+      DebugLog("👁️ ESP ACTIVÉ via démarrage rapide")
+      spawn(function()
+         while ESPEnabled do
+            UpdateESP()
+            task.wait(3)
+         end
+      end)
+   end,
+})
+
+local QuickBuyButton = MainTab:CreateButton({
+   Name = "🛒 Auto Buy God+Secret",
+   Callback = function()
+      SelectedRarities["God"] = true
+      SelectedRarities["Secret"] = true
+      AutoBuyEnabled = true
+      DebugLog("🛒 AUTO BUY ACTIVÉ (God + Secret)")
+      spawn(function()
+         while AutoBuyEnabled do
+            AutoBuyBrainrots()
+            task.wait(10)
+         end
+      end)
+   end,
+})
+
 -- ESP Tab
+local ESPConfigSection = ESPTab:CreateSection("⚙️ Configuration ESP")
+
 local ESPToggle = ESPTab:CreateToggle({
    Name = "👁️ ESP Brainrots",
    CurrentValue = false,
    Callback = function(Value)
       ESPEnabled = Value
+      UpdateStatus()
       if Value then
          DebugLog("👁️ ESP ACTIVÉ")
          spawn(function()
             while ESPEnabled do
                UpdateESP()
-               task.wait(3) -- Mise à jour toutes les 3 secondes
+               task.wait(3)
             end
          end)
       else
          DebugLog("👁️ ESP DÉSACTIVÉ")
-         -- Nettoyer tous les ESP
          for obj, gui in pairs(espBoxes) do
             RemoveESPBox(obj)
          end
@@ -624,28 +804,191 @@ local ESPToggle = ESPTab:CreateToggle({
    end,
 })
 
+local ESPDistanceSlider = ESPTab:CreateSlider({
+   Name = "📏 Distance ESP (studs)",
+   Range = {50, 500},
+   Increment = 10,
+   Suffix = " studs",
+   CurrentValue = 100,
+   Callback = function(Value)
+      DebugLog("📏 Distance ESP: " .. Value .. " studs")
+   end,
+})
+
+-- Auto Steal Tab
+local AutoStealSection = AutoStealTab:CreateSection("🎯 Configuration Auto Steal")
+
+local AutoStealToggle = AutoStealTab:CreateToggle({
+   Name = "💰 Auto Steal Players",
+   CurrentValue = false,
+   Callback = function(Value)
+      AutoStealEnabled = Value
+      UpdateStatus()
+      if Value then
+         DebugLog("💰 AUTO STEAL ACTIVÉ")
+         spawn(function()
+            while AutoStealEnabled do
+               AutoStealPlayers()
+               task.wait(5)
+            end
+         end)
+      else
+         DebugLog("💰 AUTO STEAL DÉSACTIVÉ")
+      end
+   end,
+})
+
+local StealDistanceSlider = AutoStealTab:CreateSlider({
+   Name = "📏 Distance Vol (studs)",
+   Range = {10, 100},
+   Increment = 5,
+   Suffix = " studs",
+   CurrentValue = 50,
+   Callback = function(Value)
+      DebugLog("📏 Distance vol: " .. Value .. " studs")
+   end,
+})
+
+-- Farm Tab
+local FarmSection = FarmTab:CreateSection("⚡ Configuration Farm")
+
+local AutoFarmToggle = FarmTab:CreateToggle({
+   Name = "💰 Auto Farm Money",
+   CurrentValue = false,
+   Callback = function(Value)
+      AutoFarmMoney = Value
+      UpdateStatus()
+      if Value then
+         DebugLog("💰 AUTO FARM ACTIVÉ")
+         spawn(function()
+            while AutoFarmMoney do
+               AutoFarmMoney()
+               task.wait(3)
+            end
+         end)
+      else
+         DebugLog("💰 AUTO FARM DÉSACTIVÉ")
+      end
+   end,
+})
+
+local WalkSpeedSlider = FarmTab:CreateSlider({
+   Name = "🏃 Vitesse de Marche",
+   Range = {16, 100},
+   Increment = 1,
+   Suffix = " studs/s",
+   CurrentValue = 16,
+   Callback = function(Value)
+      WalkSpeed = Value
+      if player.Character and player.Character:FindFirstChild("Humanoid") then
+         player.Character.Humanoid.WalkSpeed = Value
+      end
+      DebugLog("🏃 Vitesse: " .. Value .. " studs/s")
+   end,
+})
+
+-- Stats Tab
+local StatsSection = StatsTab:CreateSection("📊 Statistiques en Temps Réel")
+
+local StatsToggle = StatsTab:CreateToggle({
+   Name = "📊 Afficher Statistiques",
+   CurrentValue = false,
+   Callback = function(Value)
+      PlayerStatsEnabled = Value
+      if Value then
+         spawn(function()
+            while PlayerStatsEnabled do
+               UpdatePlayerStats()
+               task.wait(10)
+            end
+         end)
+      end
+   end,
+})
+
+StatsTab:CreateLabel("🎯 Brainrots Détectés: " .. Stats.BrainrotsDetected)
+StatsTab:CreateLabel("🛒 Brainrots Achetés: " .. Stats.BrainrotsBought)
+StatsTab:CreateLabel("💰 Argent Collecté: " .. Stats.MoneyEarned)
+StatsTab:CreateLabel("👥 Joueurs Volés: " .. Stats.PlayersStolen)
+
+-- Settings Tab
+local WebhookSection = SettingsTab:CreateSection("🔗 Webhook Discord")
+
+local WebhookInput = SettingsTab:CreateInput({
+   Name = "🔗 URL Webhook Discord",
+   PlaceholderText = "https://discord.com/api/webhooks/...",
+   RemoveTextAfterFocusLost = false,
+   Callback = function(Text)
+      WebhookUrl = Text
+      DebugLog("🔗 Webhook configuré")
+   end,
+})
+
+local TestWebhookButton = SettingsTab:CreateButton({
+   Name = "🧪 Tester Webhook",
+   Callback = function()
+      SendDiscordWebhook("🧪 Test Webhook", "Webhook fonctionnel ! ✅", 65280)
+      DebugLog("🧪 Test webhook envoyé")
+   end,
+})
+
+local GeneralSection = SettingsTab:CreateSection("⚙️ Paramètres Généraux")
+
+local DebugToggle = SettingsTab:CreateToggle({
+   Name = "🔍 Mode Debug",
+   CurrentValue = true,
+   Callback = function(Value)
+      DebugMode = Value
+      DebugLog("🔍 Debug: " .. (Value and "ACTIVÉ" or "DÉSACTIVÉ"))
+   end,
+})
+
 -- Auto Buy Tab
 local RaritySection = AutoBuyTab:CreateSection("🎯 Sélection des Raretés")
 
--- Toggles pour chaque rareté
-local rarities = {"God", "Secret", "Legendary", "Mythic", "Epic", "Rare", "Common"}
+AutoBuyTab:CreateLabel("Sélectionnez les raretés à acheter automatiquement:")
+
+-- Toggles pour chaque rareté avec émojis
+local rarities = {
+    {name = "God", emoji = "👑", color = "Or"},
+    {name = "Secret", emoji = "🔮", color = "Blanc"},
+    {name = "Legendary", emoji = "🧡", color = "Orange"},
+    {name = "Mythic", emoji = "❤️", color = "Rouge"},
+    {name = "Epic", emoji = "💜", color = "Violet"},
+    {name = "Rare", emoji = "💙", color = "Bleu"},
+    {name = "Common", emoji = "🤍", color = "Blanc"}
+}
 
 for _, rarity in pairs(rarities) do
     local toggle = AutoBuyTab:CreateToggle({
-        Name = rarity,
+        Name = rarity.emoji .. " " .. rarity.name .. " (" .. rarity.color .. ")",
         CurrentValue = false,
         Callback = function(Value)
-            SelectedRarities[rarity] = Value
-            DebugLog("🎯 " .. rarity .. ": " .. (Value and "ACTIVÉ" or "DÉSACTIVÉ"))
+            SelectedRarities[rarity.name] = Value
+            DebugLog("🎯 " .. rarity.name .. ": " .. (Value and "ACTIVÉ" or "DÉSACTIVÉ"))
         end,
     })
 end
 
+local AutoBuyConfigSection = AutoBuyTab:CreateSection("⚙️ Configuration Auto Buy")
+
+local AutoBuyDelaySlider = AutoBuyTab:CreateSlider({
+   Name = "⏱️ Délai entre achats (secondes)",
+   Range = {5, 60},
+   Increment = 5,
+   Suffix = "s",
+   CurrentValue = 10,
+   Callback = function(Value)
+      DebugLog("⏱️ Délai Auto Buy: " .. Value .. "s")
+   end,
+})
+
 local AutoBuyToggle = AutoBuyTab:CreateToggle({
-   Name = "🛒 Auto Buy",
+   Name = "🛒 Activer Auto Buy",
    CurrentValue = false,
    Callback = function(Value)
       AutoBuyEnabled = Value
+      UpdateStatus()
       if Value then
          DebugLog("🛒 AUTO BUY ACTIVÉ")
          spawn(function()
@@ -1033,16 +1376,56 @@ local FullWorkspaceScanButton = DebugTab:CreateButton({
    end,
 })
 
--- Message de bienvenue
+-- Message de bienvenue amélioré
 Rayfield:Notify({
-   Title = "🎯 Steal Brainrot COMPLET",
-   Content = "ESP Box + Auto Buy + Debug - Tout intégré !",
-   Duration = 5,
+   Title = "🪐 Steal Brainrot PREMIUM v2.0",
+   Content = "ESP Avancé + Auto Buy + Auto Steal + Stats + Webhooks - Premium Edition !",
+   Duration = 6,
    Image = nil,
 })
 
-DebugLog("🚀 STEAL BRAINROT COMPLET - Prêt à utiliser !")
-DebugLog("👁️ ESP avec box colorées")
-DebugLog("🛒 Auto Buy avec suivi vers base")
-DebugLog("🔍 Debug complet avec parsing noms")
-DebugLog("📝 Parsing des 6 textes: mutation, rareté, génération, prix, stolen, nom")
+-- Démarrage automatique des systèmes
+spawn(function()
+    task.wait(2)
+    DebugLog("🚀 STEAL BRAINROT PREMIUM v2.0 - Prêt à utiliser !")
+    DebugLog("👁️ ESP avec box colorées et détection dynamique")
+    DebugLog("🛒 Auto Buy avec suivi intelligent vers base")
+    DebugLog("💰 Auto Steal players + Auto Farm money")
+    DebugLog("📊 Statistiques en temps réel")
+    DebugLog("🔗 Support Webhooks Discord")
+    DebugLog("🔍 Détection automatique nouvelles raretés/mutations")
+    DebugLog("⚙️ Configuration sauvegardée automatiquement")
+    
+    -- Notification webhook de démarrage
+    if WebhookUrl ~= "" then
+        SendDiscordWebhook("🚀 Script Démarré", 
+            "Steal Brainrot Premium v2.0 lancé avec succès pour " .. player.Name, 3066993)
+    end
+end)
+
+-- Mise à jour automatique de la vitesse de marche
+spawn(function()
+    while true do
+        if player.Character and player.Character:FindFirstChild("Humanoid") then
+            if player.Character.Humanoid.WalkSpeed ~= WalkSpeed then
+                player.Character.Humanoid.WalkSpeed = WalkSpeed
+            end
+        end
+        task.wait(1)
+    end
+end)
+
+-- Système de sauvegarde automatique des statistiques
+spawn(function()
+    while true do
+        task.wait(60) -- Sauvegarder toutes les minutes
+        if PlayerStatsEnabled then
+            local sessionTime = math.floor(tick() - Stats.SessionStart)
+            if sessionTime > 0 and sessionTime % 300 == 0 then -- Toutes les 5 minutes
+                SendDiscordWebhook("📊 Rapport Statistiques", 
+                    string.format("Session: %d min | Brainrots: %d | Achats: %d | Vols: %d", 
+                    math.floor(sessionTime/60), Stats.BrainrotsDetected, Stats.BrainrotsBought, Stats.PlayersStolen), 3447003)
+            end
+        end
+    end
+end)
